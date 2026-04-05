@@ -105,6 +105,23 @@ namespace Arcpunk.Power
                     float targetIntensity = powered ? 2f : 0f;
                     light.intensity = Mathf.Lerp(light.intensity, targetIntensity,
                         Time.deltaTime * 8f);
+                    var stimMgr = Ghoul.StimulusManager.Instance;
+                    if (stimMgr != null)
+                    {
+                        if (powered)
+                        {
+                            stimMgr.RegisterContinuous(pos, new Ghoul.Stimulus
+                            {
+                                Type = Ghoul.StimulusType.Light,
+                                Origin = new Vector3(pos.x + 0.5f, pos.y + 0.5f, pos.z + 0.5f),
+                                Intensity = 15f,
+                            });
+                        }
+                        else
+                        {
+                            stimMgr.RemoveContinuous(pos);
+                        }
+                    }
                 }
             }
         }

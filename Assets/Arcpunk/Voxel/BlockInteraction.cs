@@ -1,9 +1,10 @@
-// ── BlockInteraction.cs ──
-// 플레이어의 블록 파괴/설치 입력 처리.
-// 화면 중앙 레이캐스트로 블록 선택, 좌클릭=파괴, 우클릭=설치.
-// 플레이어 오브젝트에 부착.
+// ── BlockInteraction.cs ── (v2 — 인벤토리 연동)
+// 기존 BlockInteraction을 완전 교체.
+// 핫바에서 ItemStack을 읽어 블록 설치, 도구 기반 파괴 속도/드롭.
 
 using UnityEngine;
+using Arcpunk.Voxel;
+using Arcpunk.Inventory;
 
 namespace Arcpunk.Voxel
 {
@@ -13,74 +14,37 @@ namespace Arcpunk.Voxel
         [SerializeField] private float _reachDistance = 6f;
         [SerializeField] private LayerMask _voxelLayer;
 
-        [Header("Block Selection")]
-        [SerializeField] private BlockType _selectedBlock = BlockType.StoneBrick;
-
         [Header("Visual")]
-        [SerializeField] private GameObject _selectionHighlight; // 선택 블록 하이라이트 (큐브 와이어프레임)
+        [SerializeField] private GameObject _selectionHighlight;
 
         private VoxelWorld _world;
         private Camera _cam;
+        private PlayerInventory _inventory;
 
         // 파괴 진행
         private float _breakProgress;
         private Vector3Int _breakingBlockPos;
         private bool _isBreaking;
 
-        // 핫바 (숫자키로 블록 전환)
-        private readonly BlockType[] _hotbar = new[]
-        {
-            BlockType.StoneBrick,
-            BlockType.CopperPlate,
-            BlockType.WoodRod,
-            BlockType.CopperRod,
-            BlockType.CopperWire,
-            BlockType.CopperBattery,
-            BlockType.Light,
-            BlockType.Sentry,
-            BlockType.Workbench,
-        };
-        private int _hotbarIndex;
-
         private void Start()
         {
             _world = VoxelWorld.Instance;
             _cam = Camera.main;
-            _selectedBlock = _hotbar[0];
-
-            if (_selectionHighlight != null)
-                _selectionHighlight.SetActive(false);
+            _inventory = PlayerInventory.Instance;
         }
 
         private void Update()
         {
-            HandleHotbarInput();
+            // 인벤토리 UI가 열려있으면 블록 조작 안 함
+            // (향후 InventoryUI.IsOpen 체크)
+
             HandleBlockInteraction();
-        }
-
-        private void HandleHotbarInput()
-        {
-            for (int i = 0; i < _hotbar.Length && i < 9; i++)
-            {
-                if (Input.GetKeyDown(KeyCode.Alpha1 + i))
-                {
-                    _hotbarIndex = i;
-                    _selectedBlock = _hotbar[i];
-                    Debug.Log($"[BlockInteraction] Selected: {BlockData.Get(_selectedBlock).Name}");
-                }
-            }
-
-            // 마우스 휠로도 전환
-            float scroll = Input.GetAxis("Mouse ScrollWheel");
-            if (scroll != 0)
-            {
-                _hotbarIndex = (_hotbarIndex + (scroll > 0 ? -1 : 1) + _hotbar.Length) % _hotbar.Length;
-                _selectedBlock = _hotbar[_hotbarIndex];
-            }
         }
 
         private void HandleBlockInteraction()
         {
+            if (_cam == null || _world == null) return;
+
             Ray ray = new Ray(_cam.transform.position, _cam.transform.forward);
 
             if (!Physics.Raycast(ray, out RaycastHit hit, _reachDistance, _voxelLayer))
@@ -90,8 +54,7 @@ namespace Arcpunk.Voxel
                 return;
             }
 
-            // ── 블록 좌표 계산 ──
-            // 히트 지점에서 법선 반대로 살짝 밀어서 블록 내부 좌표를 얻음
+            // 블록 좌표 계산
             Vector3 blockInside = hit.point - hit.normal * 0.01f;
             Vector3Int targetBlock = new(
                 Mathf.FloorToInt(blockInside.x),
@@ -99,7 +62,6 @@ namespace Arcpunk.Voxel
                 Mathf.FloorToInt(blockInside.z)
             );
 
-            // 설치할 위치는 히트 면의 바깥쪽
             Vector3 blockOutside = hit.point + hit.normal * 0.01f;
             Vector3Int placeBlock = new(
                 Mathf.FloorToInt(blockOutside.x),
@@ -107,18 +69,34 @@ namespace Arcpunk.Voxel
                 Mathf.FloorToInt(blockOutside.z)
             );
 
-            // 하이라이트 표시
             ShowHighlight(targetBlock);
 
             // ── 좌클릭: 파괴 ──
             if (Input.GetMouseButton(0))
             {
-                BlockType targetType = _world.GetBlock(targetBlock.x, targetBlock.y, targetBlock.z);
+                BlockType targetType = _world.GetBlock(
+                    targetBlock.x, targetBlock.y, targetBlock.z);
                 if (targetType == BlockType.Air) return;
 
-                ref BlockDef def = ref BlockData.Get(targetType);
+                // 현재 도구 정보
+                var toolItem = _inventory?.GetSelectedItem();
+                ToolTier toolTier = ToolTier.Hand;
+                float speedMult = 1f;
 
-                // 새로운 블록을 파괴 시작하면 진행 리셋
+                if (toolItem != null && !toolItem.IsEmpty)
+                {
+                    var def = toolItem.Def;
+                    toolTier = def.ToolTier;
+                    speedMult = def.SpeedMultiplier > 0 ? def.SpeedMultiplier : 1f;
+                }
+
+                // 파괴 가능 체크
+                if (!DropTable.CanBreak(targetType, toolTier))
+                    return; // 도구 티어 부족
+
+                ref BlockDef blockDef = ref BlockData.Get(targetType);
+
+                // 새로운 블록 파괴 시작
                 if (!_isBreaking || _breakingBlockPos != targetBlock)
                 {
                     _breakingBlockPos = targetBlock;
@@ -126,16 +104,46 @@ namespace Arcpunk.Voxel
                     _isBreaking = true;
                 }
 
-                _breakProgress += Time.deltaTime;
+                // 도구 속도 적용
+                _breakProgress += Time.deltaTime * speedMult;
 
-                if (_breakProgress >= def.Hardness)
+                if (_breakProgress >= blockDef.Hardness)
                 {
                     // 블록 파괴!
-                    _world.SetBlock(targetBlock.x, targetBlock.y, targetBlock.z, BlockType.Air);
+                    _world.SetBlock(targetBlock.x, targetBlock.y, targetBlock.z,
+                        BlockType.Air);
                     _world.RebuildDirtyChunks();
-                    ResetBreaking();
 
-                    // TODO: 아이템 드롭, 자극 발생 등
+                    // 드롭 아이템 스폰
+                    var drops = DropTable.GetDrops(targetType, toolTier);
+                    foreach (var (itemType, count) in drops)
+                    {
+                        Vector3 dropPos = new Vector3(
+                            targetBlock.x + 0.5f,
+                            targetBlock.y + 0.5f,
+                            targetBlock.z + 0.5f
+                        );
+                        ItemEntity.Spawn(dropPos, itemType, count);
+                    }
+
+                    // 도구 내구도 감소
+                    if (toolItem != null && !toolItem.IsEmpty && toolItem.Durability > 0)
+                    {
+                        toolItem.Durability--;
+                        if (toolItem.Durability <= 0)
+                        {
+                            toolItem.Clear();
+                            Debug.Log("[BlockInteraction] Tool broke!");
+                        }
+                    }
+
+                    // 자극 등록
+                    Ghoul.StimulusManager.Instance?.OnBlockBroken(
+                        new Vector3(targetBlock.x + 0.5f,
+                                   targetBlock.y + 0.5f,
+                                   targetBlock.z + 0.5f));
+
+                    ResetBreaking();
                 }
             }
             else
@@ -146,21 +154,39 @@ namespace Arcpunk.Voxel
             // ── 우클릭: 설치 ──
             if (Input.GetMouseButtonDown(1))
             {
-                // 설치 위치에 이미 블록이 있으면 무시
-                BlockType existing = _world.GetBlock(placeBlock.x, placeBlock.y, placeBlock.z);
+                // 날빗기 UI가 열려있으면 블록 설치 안 함
+                if (UI.KnappingUI.Instance != null && UI.KnappingUI.Instance.IsOpen)
+                    return;
+
+                // 작업대를 바라보고 있으면 블록 설치 대신 상호작용
+                BlockType lookingAt = _world.GetBlock(
+                    targetBlock.x, targetBlock.y, targetBlock.z);
+                if (lookingAt == BlockType.Workbench)
+                    return; // WorkbenchInteraction이 처리
+
+                var selectedItem = _inventory?.GetSelectedItem();
+                if (selectedItem == null || selectedItem.IsEmpty) return;
+                if (!selectedItem.Def.IsPlaceable) return;
+
+                // 설치 위치 체크
+                BlockType existing = _world.GetBlock(
+                    placeBlock.x, placeBlock.y, placeBlock.z);
                 if (existing != BlockType.Air) return;
 
-                // 플레이어와 겹치지 않는지 확인
-                // (간단한 체크: 플레이어 발 위치와 머리 위치의 블록)
-                Vector3Int playerFeet = VoxelWorld.WorldPosToBlockCoord(transform.position);
+                // 플레이어와 겹치지 않는지
+                Vector3Int playerFeet = VoxelWorld.WorldPosToBlockCoord(
+                    transform.position);
                 Vector3Int playerHead = VoxelWorld.WorldPosToBlockCoord(
                     transform.position + Vector3.up * 1.5f);
+                if (placeBlock == playerFeet || placeBlock == playerHead) return;
 
-                if (placeBlock == playerFeet || placeBlock == playerHead)
-                    return; // 자기 자신 안에 블록 설치 방지
-
-                _world.SetBlock(placeBlock.x, placeBlock.y, placeBlock.z, _selectedBlock);
+                // 블록 설치
+                _world.SetBlock(placeBlock.x, placeBlock.y, placeBlock.z,
+                    selectedItem.Def.BlockType);
                 _world.RebuildDirtyChunks();
+
+                // 인벤토리에서 1개 소모
+                _inventory.ConsumeSelected();
             }
         }
 
@@ -185,8 +211,6 @@ namespace Arcpunk.Voxel
         }
 
         // ── 공개 API ──
-        public BlockType SelectedBlock => _selectedBlock;
-        public float BreakProgress => _isBreaking ? _breakProgress : 0;
         public float BreakProgressNormalized
         {
             get
@@ -198,6 +222,5 @@ namespace Arcpunk.Voxel
                 return hardness > 0 ? _breakProgress / hardness : 0;
             }
         }
-        public int HotbarIndex => _hotbarIndex;
     }
 }

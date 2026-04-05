@@ -98,6 +98,18 @@ namespace Arcpunk.Power
             return (stored, capacity);
         }
 
+        public void ConsumeGlobal(float amount)
+        {
+            float remaining = amount;
+            foreach (var network in _networks)
+            {
+                if (remaining <= 0) break;
+                float consumed = network.ConsumeFromStorage(remaining);
+                remaining -= consumed;
+
+            }
+        }
+
         // ═══════════════════════════════════════
         // 틱 처리
         // ═══════════════════════════════════════

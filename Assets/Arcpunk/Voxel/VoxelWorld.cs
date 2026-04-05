@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using Arcpunk.Combat;
 
 namespace Arcpunk.Voxel
 {
@@ -93,6 +94,16 @@ namespace Arcpunk.Voxel
                     powerBehaviour.OnPowerBlockRemoved(pos);
                 else if (def.IsPowerBlock)
                     powerBehaviour.OnPowerBlockPlaced(pos, type);
+            }
+            //센트리 등록 및 해제
+            var sentryBehaviour = Combat.SentryBehaviour.Instance;
+            if (sentryBehaviour != null)
+            {
+                var pos = new Vector3Int(wx, wy, wz);
+                if (type == BlockType.Sentry)
+                    sentryBehaviour.RegisterSentry(pos);
+                else if (type == BlockType.Air)
+                    sentryBehaviour.UnregisterSentry(pos);
             }
         }
 

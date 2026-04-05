@@ -4,6 +4,8 @@
 // 프로토타입용 — 나중에 교체 가능.
 
 using UnityEngine;
+using Arcpunk.UI;
+
 
 namespace Arcpunk.Player
 {
@@ -51,6 +53,12 @@ namespace Arcpunk.Player
         private void Update()
         {
             HandleCursorToggle();
+
+            // 날빗기 UI가 열려있으면 조작 차단
+            if (UI.KnappingUI.Instance != null && UI.KnappingUI.Instance.IsOpen)
+                return;
+            if (UI.InventoryUI.Instance != null && UI.InventoryUI.Instance.IsOpen)
+                return;
 
             if (_cursorLocked)
             {

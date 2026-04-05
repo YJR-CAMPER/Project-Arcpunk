@@ -67,6 +67,23 @@ namespace Arcpunk.Power
             }
         }
 
+        /// <summary>배터리에서 직접 소비 (외부 요청용).</summary>
+        public float ConsumeFromStorage(float amount)
+        {
+            float consumed = 0;
+            foreach (var pos in _storages)
+            {
+                float remaining = amount - consumed;
+                if (remaining <= 0) break;
+
+                float current = _batteryCharge.GetValueOrDefault(pos, 0f);
+                float take = Mathf.Min(remaining, current);
+                _batteryCharge[pos] = current - take;
+                consumed += take;
+            }
+            return consumed;
+        }
+
         public bool IsConsumerPowered(Vector3Int pos) => _poweredConsumers.Contains(pos);
 
         public void AddInstantPower(float amount)
