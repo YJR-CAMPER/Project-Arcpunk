@@ -43,6 +43,16 @@ namespace Arcpunk.Voxel
         private void Start()
         {
             GenerateWorld();
+
+            // 플레이어를 월드 중앙 지표면으로 이동
+            var player = Player.PlayerController.Instance;
+            if (player != null)
+            {
+                var cc = player.GetComponent<CharacterController>();
+                if (cc != null) cc.enabled = false;   // CC 켜진 채로 position 바꾸면 무시됨
+                player.transform.position = GetSpawnPosition();
+                if (cc != null) cc.enabled = true;
+            }
         }
 
         // ═══════════════════════════════════════
