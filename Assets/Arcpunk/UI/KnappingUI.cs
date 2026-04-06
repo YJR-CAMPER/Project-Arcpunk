@@ -1,4 +1,4 @@
-// ── KnappingUI.cs ──
+﻿// ── KnappingUI.cs ──
 // 날빗기 미니게임 UI. 5×5 격자에서 돌을 클릭으로 깨내어 도구 형태를 만든다.
 // 작업대(Workbench)를 우클릭하면 열림.
 // Canvas + Button을 런타임에 자동 생성.
@@ -65,6 +65,7 @@ namespace Arcpunk.UI
 
         public void Open()
         {
+            _canvas.enabled = true;
             IsOpen = true;
             _panel.SetActive(true);
 
@@ -78,6 +79,7 @@ namespace Arcpunk.UI
 
         public void Close()
         {
+            _canvas.enabled = false;
             IsOpen = false;
             _panel.SetActive(false);
 

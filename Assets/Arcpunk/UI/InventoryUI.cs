@@ -1,4 +1,4 @@
-// ── InventoryUI.cs ──
+﻿// ── InventoryUI.cs ──
 // E키로 여는 풀 인벤토리 UI. 핫바 9칸 + 메인 27칸.
 // 좌클릭: 아이템 집기/놓기, 우클릭: 1개 놓기/절반 집기.
 // Canvas를 런타임에 자동 생성.
@@ -68,6 +68,19 @@ namespace Arcpunk.UI
 
         private void Update()
         {
+            if (IsOpen && Input.GetMouseButtonDown(0))
+            {
+                Debug.Log($"[InvUI] Click at {Input.mousePosition}, cursor visible={Cursor.visible}, lockState={Cursor.lockState}");
+
+                var ped = new UnityEngine.EventSystems.PointerEventData(UnityEngine.EventSystems.EventSystem.current);
+                ped.position = Input.mousePosition;
+                var results = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+                UnityEngine.EventSystems.EventSystem.current.RaycastAll(ped, results);
+                Debug.Log($"[InvUI] Raycast hit {results.Count} objects:");
+                foreach (var r in results)
+                    Debug.Log($"  → {r.gameObject.name} (canvas sortOrder / depth)");
+            }
+
             if (Input.GetKeyDown(KeyCode.E))
             {
                 if (IsOpen) Close();
@@ -92,6 +105,7 @@ namespace Arcpunk.UI
 
         public void Open()
         {
+            _canvas.enabled = true;
             IsOpen = true;
             _panel.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
@@ -120,6 +134,7 @@ namespace Arcpunk.UI
                 _cursorItem.Clear();
             }
 
+            _canvas.enabled = false;
             IsOpen = false;
             _panel.SetActive(false);
             if (_cursorObj != null) _cursorObj.SetActive(false);
@@ -250,21 +265,10 @@ namespace Arcpunk.UI
             var bg = slotObj.AddComponent<Image>();
             bg.color = _slotColor;
 
-            // 클릭 이벤트
-            var trigger = slotObj.AddComponent<EventTrigger>();
-
-            // 좌클릭
-            var leftClick = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
-            int idx = slotIndex; // 클로저 캡처
-            leftClick.callback.AddListener((data) =>
-            {
-                var pointerData = (PointerEventData)data;
-                if (pointerData.button == PointerEventData.InputButton.Left)
-                    OnSlotLeftClick(idx);
-                else if (pointerData.button == PointerEventData.InputButton.Right)
-                    OnSlotRightClick(idx);
-            });
-            trigger.triggers.Add(leftClick);
+            var handler = slotObj.AddComponent<SlotClickHandler>();
+            handler.SlotIndex = slotIndex;
+            handler.OnLeft = OnSlotLeftClick;
+            handler.OnRight = OnSlotRightClick;
 
             // 아이콘
             var iconObj = new GameObject("Icon");
@@ -312,6 +316,8 @@ namespace Arcpunk.UI
 
         private void OnSlotLeftClick(int slotIndex)
         {
+            Debug.Log($"[InventoryUI] Slot {slotIndex} clicked!");
+
             var inv = PlayerInventory.Instance;
             if (inv == null) return;
 
@@ -511,6 +517,21 @@ namespace Arcpunk.UI
             txt.alignment = TextAnchor.MiddleCenter;
             txt.text = text;
             txt.raycastTarget = false;
+        }
+    }
+    public class SlotClickHandler : MonoBehaviour,
+    UnityEngine.EventSystems.IPointerClickHandler
+    {
+        public int SlotIndex;
+        public System.Action<int> OnLeft;
+        public System.Action<int> OnRight;
+
+        public void OnPointerClick(UnityEngine.EventSystems.PointerEventData e)
+        {
+            if (e.button == UnityEngine.EventSystems.PointerEventData.InputButton.Left)
+                OnLeft?.Invoke(SlotIndex);
+            else if (e.button == UnityEngine.EventSystems.PointerEventData.InputButton.Right)
+                OnRight?.Invoke(SlotIndex);
         }
     }
 }
