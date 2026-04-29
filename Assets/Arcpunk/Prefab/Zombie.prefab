@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 4922225454078445973}
   - component: {fileID: 3232982521059918883}
   - component: {fileID: 8226964640331924721}
+  - component: {fileID: 1971136006207266237}
   m_Layer: 0
   m_Name: Meshy_AI_A_3D_voxel_model_of_a_0401023534_texture
   m_TagString: Untagged
@@ -83,6 +84,27 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!95 &1971136006207266237
+Animator:
+  serializedVersion: 5
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1333660184148376099}
+  m_Enabled: 1
+  m_Avatar: {fileID: 9000000, guid: 688793b362d18794dbdc09860d1d0cdf, type: 3}
+  m_Controller: {fileID: 9100000, guid: 5dda46d5340121b488e58d7fb6553f17, type: 2}
+  m_CullingMode: 0
+  m_UpdateMode: 0
+  m_ApplyRootMotion: 0
+  m_LinearVelocityBlending: 0
+  m_StabilizeFeet: 0
+  m_WarningMessage: 
+  m_HasTransformHierarchy: 1
+  m_AllowConstantClipSamplingOptimization: 1
+  m_KeepAnimatorStateOnDisable: 0
+  m_WriteDefaultValuesOnDisable: 0
 --- !u!1 &2297155783732155889
 GameObject:
   m_ObjectHideFlags: 0

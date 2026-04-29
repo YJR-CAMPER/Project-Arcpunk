@@ -80,6 +80,10 @@ namespace Arcpunk.Voxel
         // 빛 방출
         public bool EmitsLight;
         public int LightLevel;
+
+        // X자 빌보드 (버섯, 피뢰침 등)
+        public bool IsCross;
+        public int TexCross;           // 크로스 아틀라스 인덱스
     }
 
     /// <summary>
@@ -89,6 +93,8 @@ namespace Arcpunk.Voxel
     {
         public static readonly BlockDef[] Defs = new BlockDef[256];
         public static int AtlasSize = 4; // 4×4 텍스처 아틀라스
+        public static int CrossAtlasCols = 2; // 크로스 아틀라스 2×1
+        public static int CrossAtlasRows = 1;
 
         static BlockData()
         {
@@ -146,9 +152,12 @@ namespace Arcpunk.Voxel
 
             Set(BlockType.MushroomBlock, new BlockDef
             {
-                Name = "Mushroom", IsSolid = true, Hardness = 0.5f,
+                Name = "Mushroom", IsSolid = false, IsTransparent = true,
+                Hardness = 0.5f,
                 TexTop = 6, TexSide = 6, TexBottom = 6,
                 MinTool = ToolTier.Hand,
+                IsCross = true,
+                TexCross = 1,  // 크로스 아틀라스: 버섯
             });
 
             // ── 건축 블록 ──
@@ -169,20 +178,26 @@ namespace Arcpunk.Voxel
             // ── 전력 블록 ──
             Set(BlockType.WoodRod, new BlockDef
             {
-                Name = "Wood Lightning Rod", IsSolid = true, Hardness = 1.5f,
+                Name = "Wood Lightning Rod", IsSolid = false, IsTransparent = true,
+                Hardness = 1.5f,
                 TexTop = 3, TexSide = 2, TexBottom = 3,
                 MinTool = ToolTier.Hand,
                 IsPowerBlock = true, PowerRole = PowerRole.Producer,
                 BaseOutput = 5f,
+                IsCross = true,
+                TexCross = 0,  // 크로스 아틀라스: 피뢰침
             });
 
             Set(BlockType.CopperRod, new BlockDef
             {
-                Name = "Copper Lightning Rod", IsSolid = true, Hardness = 2f,
+                Name = "Copper Lightning Rod", IsSolid = false, IsTransparent = true,
+                Hardness = 2f,
                 TexTop = 10, TexSide = 10, TexBottom = 10,
                 MinTool = ToolTier.Stone,
                 IsPowerBlock = true, PowerRole = PowerRole.Producer,
                 BaseOutput = 10f,
+                IsCross = true,
+                TexCross = 0,  // 크로스 아틀라스: 피뢰침
             });
 
             Set(BlockType.CopperWire, new BlockDef

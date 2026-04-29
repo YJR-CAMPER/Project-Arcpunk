@@ -1,10 +1,11 @@
-// ── HotbarUI.cs ──
+﻿// ── HotbarUI.cs ──
 // Canvas 기반 핫바 UI. 화면 하단에 9칸 항상 표시.
 // 런타임에 Canvas + 슬롯을 자동 생성하므로 수동 UI 세팅 불필요.
 
 using UnityEngine;
 using UnityEngine.UI;
 using Arcpunk.Inventory;
+using Arcpunk.Voxel;
 
 namespace Arcpunk.UI
 {
@@ -171,7 +172,19 @@ namespace Arcpunk.UI
         private void OnSlotChanged(int slotIndex)
         {
             if (slotIndex < PlayerInventory.HOTBAR_SIZE)
+            {
                 RefreshSlot(slotIndex);
+
+                // 선택 중인 슬롯의 내용이 바뀌면 손에 든 아이템도 갱신
+                var inv = PlayerInventory.Instance;
+                if (inv != null && slotIndex == inv.SelectedHotbar)
+                {
+                    var item = inv.GetSelectedItem();
+                    var resolver = ItemIconResolver.Instance;
+                    if (resolver != null)
+                        resolver.UpdateHeldItem(item.IsEmpty ? ItemType.None : item.Type);
+                }
+            }
         }
 
         private void OnSelectionChanged(int selected)
@@ -187,9 +200,19 @@ namespace Arcpunk.UI
             for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++)
                 RefreshSlot(i);
 
-            // 선택된 아이템 이름
+            // 선택된 아이템 이름 + 손에 든 아이템 갱신
             var selectedItem = inv.GetSelectedItem();
             _itemNameText.text = selectedItem.IsEmpty ? "" : selectedItem.Def.Name;
+
+            // 손에 든 아이템 표시 갱신
+            var resolver = ItemIconResolver.Instance;
+            if (resolver != null)
+            {
+                if (selectedItem.IsEmpty)
+                    resolver.UpdateHeldItem(ItemType.None);
+                else
+                    resolver.UpdateHeldItem(selectedItem.Type);
+            }
         }
 
         private void RefreshSlot(int index)
@@ -210,19 +233,45 @@ namespace Arcpunk.UI
             }
             else
             {
-                // 아이콘: 텍스처 아틀라스에서 UV 잘라서 표시
-                if (_atlasTexture != null)
+                // 아이템 종류에 따라 아이콘 분기
+                SetSlotIcon(_slotIcons[index], item.Type);
+                _slotCounts[index].text = item.Count > 1 ? item.Count.ToString() : "";
+            }
+        }
+
+        /// <summary>아이템 타입에 따라 블록 아틀라스 또는 Gemini 아이콘으로 표시.</summary>
+        private void SetSlotIcon(RawImage icon, ItemType type)
+        {
+            var mode = ItemIconResolver.GetIconMode(type);
+
+            if (mode == IconMode.IsometricBlock && _atlasTexture != null)
+            {
+                icon.texture = _atlasTexture;
+                icon.uvRect = GetAtlasUV(ItemDatabase.Get(type).IconIndex);
+                icon.enabled = true;
+            }
+            else if (mode == IconMode.GeminiSprite)
+            {
+                var resolver = ItemIconResolver.Instance;
+                var sprite = resolver != null ? resolver.GetSprite(type) : null;
+                if (sprite != null)
                 {
-                    _slotIcons[index].texture = _atlasTexture;
-                    _slotIcons[index].uvRect = GetAtlasUV(item.Def.IconIndex);
-                    _slotIcons[index].enabled = true;
+                    ItemIconResolver.ApplyToRawImage(icon, sprite);
+                }
+                else if (_atlasTexture != null)
+                {
+                    icon.texture = _atlasTexture;
+                    icon.uvRect = GetAtlasUV(ItemDatabase.Get(type).IconIndex);
+                    icon.enabled = true;
                 }
                 else
                 {
-                    _slotIcons[index].enabled = false;
+                    icon.enabled = false;
                 }
-
-                _slotCounts[index].text = item.Count > 1 ? item.Count.ToString() : "";
+            }
+            else
+            {
+                icon.enabled = false;
             }
         }
 

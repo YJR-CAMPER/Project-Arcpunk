@@ -1,4 +1,4 @@
-// ── PlayerInventory.cs ──
+﻿// ── PlayerInventory.cs ──
 // 플레이어 인벤토리. 핫바 9칸 + 메인 27칸 = 36칸.
 // Player 오브젝트에 부착.
 
@@ -163,18 +163,37 @@ namespace Arcpunk.Inventory
         /// <summary>디버그용: 모든 블록 아이템 10개씩 추가.</summary>
         public void DebugFillInventory()
         {
-            AddItem(ItemType.StoneChip, 32);   // ← 먼저!
-            AddItem(ItemType.Stick, 32);       // ← 이것도
-            AddItem(ItemType.Workbench, 2);    // ← 이것도
+            // 먼저 인벤토리 비우기
+            for (int i = 0; i < TOTAL_SIZE; i++)
+                Slots[i] = new ItemStack();
+
+            // 핫바 (0~8): 자주 쓰는 도구/블록
+            AddItem(ItemType.StonePickaxe, 1);
+            AddItem(ItemType.StoneAxe, 1);
+            AddItem(ItemType.StoneKnife, 1);
+            AddItem(ItemType.Workbench, 4);
             AddItem(ItemType.StoneBrick, 64);
             AddItem(ItemType.CopperPlate, 32);
             AddItem(ItemType.WoodRod, 16);
             AddItem(ItemType.CopperRod, 16);
+            AddItem(ItemType.Sentry, 8);
+
+            // 메인 인벤토리 (9~35): 자원/부품
+            AddItem(ItemType.StoneChip, 32);
+            AddItem(ItemType.Stick, 32);
             AddItem(ItemType.CopperWire, 32);
             AddItem(ItemType.CopperBattery, 8);
             AddItem(ItemType.Light, 8);
-            AddItem(ItemType.Sentry, 4);
+            AddItem(ItemType.ElectricFurnace, 4);
+            AddItem(ItemType.CopperIngot, 16);
+            AddItem(ItemType.IronIngot, 16);
             AddItem(ItemType.Mushroom, 16);
+            AddItem(ItemType.CopperOre, 32);
+            AddItem(ItemType.IronOre, 32);
+
+            // 전체 슬롯 갱신 알림
+            for (int i = 0; i < TOTAL_SIZE; i++)
+                OnSlotChanged?.Invoke(i);
         }
     }
 }

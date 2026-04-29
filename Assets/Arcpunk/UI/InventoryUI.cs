@@ -7,6 +7,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using Arcpunk.Inventory;
+using Arcpunk.Voxel;
 
 namespace Arcpunk.UI
 {
@@ -463,12 +464,7 @@ namespace Arcpunk.UI
             }
             else
             {
-                if (_atlasTexture != null)
-                {
-                    ui.Icon.texture = _atlasTexture;
-                    ui.Icon.uvRect = GetAtlasUV(item.Def.IconIndex);
-                    ui.Icon.enabled = true;
-                }
+                SetSlotIcon(ui.Icon, item.Type);
                 ui.Count.text = item.Count > 1 ? item.Count.ToString() : "";
             }
         }
@@ -482,12 +478,7 @@ namespace Arcpunk.UI
             else
             {
                 _cursorObj.SetActive(true);
-                if (_atlasTexture != null)
-                {
-                    _cursorIcon.texture = _atlasTexture;
-                    _cursorIcon.uvRect = GetAtlasUV(_cursorItem.Def.IconIndex);
-                    _cursorIcon.enabled = true;
-                }
+                SetSlotIcon(_cursorIcon, _cursorItem.Type);
                 _cursorCount.text = _cursorItem.Count > 1
                     ? _cursorItem.Count.ToString() : "";
             }
@@ -499,6 +490,42 @@ namespace Arcpunk.UI
             int row = index / _atlasSize;
             float size = 1f / _atlasSize;
             return new Rect(col * size, 1f - (row + 1) * size, size, size);
+        }
+
+        /// <summary>아이템 타입에 따라 블록 아틀라스 또는 Gemini 아이콘으로 표시.</summary>
+        private void SetSlotIcon(RawImage icon, ItemType type)
+        {
+            var mode = ItemIconResolver.GetIconMode(type);
+
+            if (mode == IconMode.IsometricBlock && _atlasTexture != null)
+            {
+                icon.texture = _atlasTexture;
+                icon.uvRect = GetAtlasUV(ItemDatabase.Get(type).IconIndex);
+                icon.enabled = true;
+            }
+            else if (mode == IconMode.GeminiSprite)
+            {
+                var resolver = ItemIconResolver.Instance;
+                var sprite = resolver != null ? resolver.GetSprite(type) : null;
+                if (sprite != null)
+                {
+                    ItemIconResolver.ApplyToRawImage(icon, sprite);
+                }
+                else if (_atlasTexture != null)
+                {
+                    icon.texture = _atlasTexture;
+                    icon.uvRect = GetAtlasUV(ItemDatabase.Get(type).IconIndex);
+                    icon.enabled = true;
+                }
+                else
+                {
+                    icon.enabled = false;
+                }
+            }
+            else
+            {
+                icon.enabled = false;
+            }
         }
 
         private void CreateLabel(string text, Transform parent,

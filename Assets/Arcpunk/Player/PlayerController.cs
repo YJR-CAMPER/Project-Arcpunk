@@ -1,11 +1,10 @@
-// ── PlayerController.cs ──
-// 간단한 1인칭 컨트롤러. CharacterController 기반.
-// WASD 이동, 마우스 시점, 스페이스 점프.
-// 프로토타입용 — 나중에 교체 가능.
+﻿// ── PlayerController.cs ──
+// 1인칭 컨트롤러. CharacterController 기반.
+// [추가] 외부 넉백 속도 수용 (AddExternalVelocity)
+// [추가] 사망 시 입력 차단
 
 using UnityEngine;
 using Arcpunk.UI;
-
 
 namespace Arcpunk.Player
 {
@@ -24,13 +23,21 @@ namespace Arcpunk.Player
         [SerializeField] private float _mouseSensitivity = 2f;
         [SerializeField] private float _maxLookAngle = 85f;
 
+        [Header("Knockback")]
+        [SerializeField] private float _knockbackDecay = 8f;   // 넉백 감쇠 속도
+
         [Header("References")]
-        [SerializeField] private Transform _cameraHolder; // 빈 오브젝트, 카메라의 부모
+        [SerializeField] private Transform _cameraHolder;
 
         private CharacterController _cc;
         private Vector3 _velocity;
+        private Vector3 _knockbackVelocity;  // 외부 넉백 벡터
         private float _xRotation;
         private bool _cursorLocked = true;
+
+        // 사망 카메라 연출
+        private bool _deathTiltActive;
+        private float _deathTiltProgress;
 
         private void Awake()
         {
@@ -42,22 +49,27 @@ namespace Arcpunk.Player
         {
             SetCursorLock(true);
 
-            // 스폰 위치
             var world = Voxel.VoxelWorld.Instance;
             if (world != null)
-            {
                 transform.position = world.GetSpawnPosition();
-            }
         }
 
         private void Update()
         {
+            // 사망 상태
+            var health = GetComponent<PlayerHealth>();
+            if (health != null && health.IsDead)
+            {
+                UpdateDeathCamera();
+                return; // 모든 입력 차단
+            }
+
             HandleCursorToggle();
 
-            // 날빗기 UI가 열려있으면 조작 차단
-            if (UI.KnappingUI.Instance != null && UI.KnappingUI.Instance.IsOpen)
+            // UI 열려있으면 조작 차단
+            if (KnappingUI.Instance != null && KnappingUI.Instance.IsOpen)
                 return;
-            if (UI.InventoryUI.Instance != null && UI.InventoryUI.Instance.IsOpen)
+            if (InventoryUI.Instance != null && InventoryUI.Instance.IsOpen)
                 return;
 
             if (_cursorLocked)
@@ -65,6 +77,9 @@ namespace Arcpunk.Player
                 HandleLook();
                 HandleMovement();
             }
+
+            // 넉백 감쇠
+            ApplyKnockbackDecay();
         }
 
         private void HandleLook()
@@ -85,7 +100,6 @@ namespace Arcpunk.Player
 
         private void HandleMovement()
         {
-            // 수평 이동
             float h = Input.GetAxisRaw("Horizontal");
             float v = Input.GetAxisRaw("Vertical");
             Vector3 moveDir = (transform.right * h + transform.forward * v).normalized;
@@ -94,36 +108,106 @@ namespace Arcpunk.Player
             if (Input.GetKey(KeyCode.LeftShift))
                 speed *= _sprintMultiplier;
 
-            // 중력
             if (_cc.isGrounded && _velocity.y < 0)
-                _velocity.y = -2f; // 약간의 하향력으로 grounded 유지
+                _velocity.y = -2f;
 
-            // 점프
             if (Input.GetKeyDown(KeyCode.Space) && _cc.isGrounded)
                 _velocity.y = _jumpForce;
 
             _velocity.y += _gravity * Time.deltaTime;
 
-            // 이동 적용
+            // 이동 + 넉백 합산
             Vector3 finalMove = moveDir * speed * Time.deltaTime;
             finalMove.y = _velocity.y * Time.deltaTime;
+            finalMove += _knockbackVelocity * Time.deltaTime;
 
             _cc.Move(finalMove);
         }
 
-        private void HandleCursorToggle()
+        // ═══════════════════════════════════════
+        // 넉백
+        // ═══════════════════════════════════════
+
+        /// <summary>외부에서 넉백 속도를 추가. PlayerHealth에서 호출.</summary>
+        public void AddExternalVelocity(Vector3 velocity)
         {
-            // Escape로 커서 토글
-            if (Input.GetKeyDown(KeyCode.Escape))
+            _knockbackVelocity += velocity;
+        }
+
+        private void ApplyKnockbackDecay()
+        {
+            if (_knockbackVelocity.sqrMagnitude > 0.01f)
             {
-                SetCursorLock(!_cursorLocked);
+                _knockbackVelocity = Vector3.Lerp(
+                    _knockbackVelocity, Vector3.zero,
+                    Time.deltaTime * _knockbackDecay);
+            }
+            else
+            {
+                _knockbackVelocity = Vector3.zero;
+            }
+        }
+
+        // ═══════════════════════════════════════
+        // 사망 카메라
+        // ═══════════════════════════════════════
+
+        private void UpdateDeathCamera()
+        {
+            if (!_deathTiltActive)
+            {
+                _deathTiltActive = true;
+                _deathTiltProgress = 0f;
             }
 
-            // 화면 클릭으로 다시 잠금
-            if (!_cursorLocked && Input.GetMouseButtonDown(0))
+            // 카메라 천천히 기울어짐 (쓰러지는 연출)
+            _deathTiltProgress += Time.deltaTime * 0.5f;
+            float tilt = Mathf.Lerp(0, 45f, Mathf.Clamp01(_deathTiltProgress));
+            float drop = Mathf.Lerp(0, -0.5f, Mathf.Clamp01(_deathTiltProgress));
+
+            if (_cameraHolder != null)
             {
-                SetCursorLock(true);
+                _cameraHolder.localRotation = Quaternion.Euler(
+                    _xRotation + tilt * 0.3f,
+                    0,
+                    tilt);
+                _cameraHolder.localPosition = new Vector3(0, drop, 0);
             }
+
+            // 중력은 계속 적용
+            if (_cc.isGrounded && _velocity.y < 0)
+                _velocity.y = -2f;
+            _velocity.y += _gravity * Time.deltaTime;
+            _cc.Move(new Vector3(0, _velocity.y * Time.deltaTime, 0));
+        }
+
+        /// <summary>리스폰 시 카메라 복원.</summary>
+        public void ResetDeathState()
+        {
+            _deathTiltActive = false;
+            _deathTiltProgress = 0f;
+            _knockbackVelocity = Vector3.zero;
+
+            if (_cameraHolder != null)
+            {
+                _cameraHolder.localRotation = Quaternion.Euler(_xRotation, 0, 0);
+                _cameraHolder.localPosition = Vector3.zero;
+            }
+
+            SetCursorLock(true);
+        }
+
+        // ═══════════════════════════════════════
+        // 커서
+        // ═══════════════════════════════════════
+
+        private void HandleCursorToggle()
+        {
+            if (Input.GetKeyDown(KeyCode.Escape))
+                SetCursorLock(!_cursorLocked);
+
+            if (!_cursorLocked && Input.GetMouseButtonDown(0))
+                SetCursorLock(true);
         }
 
         private void SetCursorLock(bool locked)

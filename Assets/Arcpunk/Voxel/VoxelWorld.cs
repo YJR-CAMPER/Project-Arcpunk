@@ -19,13 +19,18 @@ namespace Arcpunk.Voxel
         [SerializeField] private int _worldSizeZ = 8;   // 128 blocks
 
         [Header("Terrain Generation")]
-        [SerializeField] private float _noiseScale = 0.02f;
-        [SerializeField] private float _terrainHeight = 20f;
-        [SerializeField] private float _terrainBase = 16f;
         [SerializeField] private int _seed = 42;
+
+        [Header("Cave Generation (Spaghetti)")]
+        [SerializeField] private float _caveFreq = 0.035f;        // 동굴 주파수 (작을수록 넓고 긴 터널)
+        [SerializeField] private float _caveWidth = 0.06f;        // 터널 두께 (클수록 넓은 동굴)
+        [SerializeField] private int _caveMinY = 2;               // 동굴 최소 Y (바닥 뚫림 방지)
+        [SerializeField] private int _caveSurfaceGap = 4;         // 지표면에서 이 깊이 아래부터만 동굴 생성
+        [SerializeField] private float _entranceChance = 0.92f;   // 입구 노이즈 임계값 (높을수록 입구 희귀)
 
         [Header("References")]
         [SerializeField] private Material _chunkMaterial; // 텍스처 아틀라스 머티리얼
+        [SerializeField] private Material _crossMaterial; // X자 빌보드 머티리얼
 
         private Dictionary<Vector3Int, Chunk> _chunks = new();
         private Dictionary<Vector3Int, ChunkRenderer> _renderers = new();
@@ -81,12 +86,12 @@ namespace Arcpunk.Voxel
             chunk.SetBlock(local.x, local.y, local.z, type);
 
             // 청크 경계의 블록이 변경되면 이웃 청크도 리메싱 필요
-            if (local.x == 0)                MarkDirty(chunkCoord + Vector3Int.left);
-            if (local.x == Chunk.SIZE - 1)   MarkDirty(chunkCoord + Vector3Int.right);
-            if (local.y == 0)                MarkDirty(chunkCoord + Vector3Int.down);
-            if (local.y == Chunk.SIZE - 1)   MarkDirty(chunkCoord + Vector3Int.up);
-            if (local.z == 0)                MarkDirty(chunkCoord + new Vector3Int(0, 0, -1));
-            if (local.z == Chunk.SIZE - 1)   MarkDirty(chunkCoord + new Vector3Int(0, 0, 1));
+            if (local.x == 0) MarkDirty(chunkCoord + Vector3Int.left);
+            if (local.x == Chunk.SIZE - 1) MarkDirty(chunkCoord + Vector3Int.right);
+            if (local.y == 0) MarkDirty(chunkCoord + Vector3Int.down);
+            if (local.y == Chunk.SIZE - 1) MarkDirty(chunkCoord + Vector3Int.up);
+            if (local.z == 0) MarkDirty(chunkCoord + new Vector3Int(0, 0, -1));
+            if (local.z == Chunk.SIZE - 1) MarkDirty(chunkCoord + new Vector3Int(0, 0, 1));
 
             // 전력 시스템에 블록 변경 알림
             var powerSys = Power.VoxelPowerSystem.Instance;
@@ -169,14 +174,14 @@ namespace Arcpunk.Voxel
 
             // 1. 모든 청크 생성 + 지형 데이터 채우기
             for (int cx = 0; cx < _worldSizeX; cx++)
-            for (int cy = 0; cy < _worldSizeY; cy++)
-            for (int cz = 0; cz < _worldSizeZ; cz++)
-            {
-                Vector3Int coord = new(cx, cy, cz);
-                Chunk chunk = new Chunk(coord);
-                GenerateChunkTerrain(chunk);
-                _chunks[coord] = chunk;
-            }
+                for (int cy = 0; cy < _worldSizeY; cy++)
+                    for (int cz = 0; cz < _worldSizeZ; cz++)
+                    {
+                        Vector3Int coord = new(cx, cy, cz);
+                        Chunk chunk = new Chunk(coord);
+                        GenerateChunkTerrain(chunk);
+                        _chunks[coord] = chunk;
+                    }
 
             // 2. 지형 위에 구조물 생성 (죽은 나무 기둥 등)
             GenerateStructures();
@@ -198,6 +203,11 @@ namespace Arcpunk.Voxel
                 renderer.Initialize(kvp.Value, _chunkMaterial);
                 renderer.UpdateMesh(mesh);
 
+                // 서브메시 2개 → 머티리얼 2개 (블록 + 크로스)
+                var meshRenderer = go.GetComponent<MeshRenderer>();
+                if (meshRenderer != null && _crossMaterial != null)
+                    meshRenderer.materials = new[] { _chunkMaterial, _crossMaterial };
+
                 _renderers[kvp.Key] = renderer;
             }
 
@@ -211,104 +221,171 @@ namespace Arcpunk.Voxel
             float seedOffset = _seed * 0.1f;
 
             for (int lx = 0; lx < Chunk.SIZE; lx++)
-            for (int lz = 0; lz < Chunk.SIZE; lz++)
-            {
-                int wx = chunk.Coord.x * Chunk.SIZE + lx;
-                int wz = chunk.Coord.z * Chunk.SIZE + lz;
-
-                // 2옥타브 펄린 노이즈로 지형 높이 결정
-                float n1 = Mathf.PerlinNoise(
-                    (wx + seedOffset) * _noiseScale,
-                    (wz + seedOffset) * _noiseScale);
-                float n2 = Mathf.PerlinNoise(
-                    (wx + seedOffset) * _noiseScale * 2f + 100f,
-                    (wz + seedOffset) * _noiseScale * 2f + 100f) * 0.5f;
-
-                float height = (n1 + n2) * _terrainHeight + _terrainBase;
-                int iHeight = Mathf.RoundToInt(height);
-
-                for (int ly = 0; ly < Chunk.SIZE; ly++)
+                for (int lz = 0; lz < Chunk.SIZE; lz++)
                 {
-                    int wy = chunk.Coord.y * Chunk.SIZE + ly;
-                    BlockType type;
+                    int wx = chunk.Coord.x * Chunk.SIZE + lx;
+                    int wz = chunk.Coord.z * Chunk.SIZE + lz;
 
-                    if (wy > iHeight)
-                    {
-                        type = BlockType.Air;
-                    }
-                    else if (wy == iHeight)
-                    {
-                        type = BlockType.Dirt; // 표면
-                    }
-                    else if (wy > iHeight - 4)
-                    {
-                        type = BlockType.Dirt; // 흙 레이어
-                    }
-                    else
-                    {
-                        type = BlockType.Stone;
+                    // ── 바이옴 결정 (블렌딩 포함) ──
+                    BiomeParams biome = BiomeData.SampleBlended(wx, wz, seedOffset);
 
-                        // 광석 분포 (3D 노이즈)
-                        float oreNoise = Mathf.PerlinNoise(
-                            (wx + seedOffset) * 0.1f,
-                            (wy * 0.1f + wz * 0.1f + seedOffset));
+                    // ── 멀티 옥타브 높이맵 (바이옴별 파라미터) ──
+                    float heightNoise = 0f;
+                    float amp = 1f;
+                    float freq = biome.NoiseFreq;
+                    float maxAmp = 0f;
 
-                        if (oreNoise > 0.82f && wy < 25)
-                            type = BlockType.CopperOre;
-                        else if (oreNoise > 0.88f && wy < 18)
-                            type = BlockType.IronOre;
+                    for (int o = 0; o < biome.Octaves; o++)
+                    {
+                        heightNoise += Mathf.PerlinNoise(
+                            (wx + seedOffset) * freq + o * 100f,
+                            (wz + seedOffset) * freq + o * 100f) * amp;
+                        maxAmp += amp;
+                        amp *= biome.Persistence;
+                        freq *= 2f;
+                    }
+                    heightNoise /= maxAmp; // 0~1 정규화
+
+                    float height = heightNoise * biome.HeightScale + biome.BaseHeight;
+                    int iHeight = Mathf.RoundToInt(height);
+
+                    // ── 블록 채우기 ──
+                    for (int ly = 0; ly < Chunk.SIZE; ly++)
+                    {
+                        int wy = chunk.Coord.y * Chunk.SIZE + ly;
+                        BlockType type;
+
+                        if (wy > iHeight)
+                        {
+                            type = BlockType.Air;
+                        }
+                        else if (wy == iHeight)
+                        {
+                            type = biome.Surface; // 바이옴별 표면 블록
+                        }
+                        else if (wy > iHeight - 4)
+                        {
+                            type = biome.Subsurface; // 바이옴별 지표 아래 블록
+                        }
+                        else
+                        {
+                            type = BlockType.Stone;
+
+                            // 광석 분포 (바이옴별 구리 보너스 적용)
+                            float oreNoise = Mathf.PerlinNoise(
+                                (wx + seedOffset) * 0.1f,
+                                (wy * 0.1f + wz * 0.1f + seedOffset));
+
+                            if (oreNoise > (0.82f - biome.CopperBonus) && wy < 25)
+                                type = BlockType.CopperOre;
+                            else if (oreNoise > 0.88f && wy < 18)
+                                type = BlockType.IronOre;
+                        }
+
+                        chunk.SetBlock(lx, ly, lz, type);
                     }
 
-                    chunk.SetBlock(lx, ly, lz, type);
+                    // ──────────────────────────────────
+                    // 동굴 카빙 패스 (Spaghetti Cave)
+                    // 3D 퍼린 노이즈 두 개의 절대값이 동시에 0에 가까울 때
+                    // → 두 "등위면"이 교차하는 곳 = 긴 터널 형태의 동굴
+                    // ──────────────────────────────────
+
+                    // 입구 판정: 이 XZ 위치가 동굴 입구 후보인지 결정
+                    // 입구 후보 지점에서는 surfaceGap을 0으로 → 동굴이 지표까지 관통 가능
+                    float entranceNoise = Mathf.PerlinNoise(
+                        (wx + seedOffset + 777f) * 0.08f,
+                        (wz + seedOffset + 777f) * 0.08f);
+                    bool isEntrance = entranceNoise > _entranceChance;
+                    int surfaceGap = isEntrance ? 0 : _caveSurfaceGap;
+
+                    for (int ly = 0; ly < Chunk.SIZE; ly++)
+                    {
+                        int wy = chunk.Coord.y * Chunk.SIZE + ly;
+
+                        // 바닥 보호는 항상 적용, 지표면 보호는 입구 여부에 따라
+                        if (wy <= _caveMinY || wy >= iHeight - surfaceGap)
+                            continue;
+
+                        // 이미 Air면 스킵
+                        if (chunk.GetBlock(lx, ly, lz) == BlockType.Air)
+                            continue;
+
+                        // 노이즈 좌표 (시드 오프셋으로 분리)
+                        float nx = (wx + seedOffset) * _caveFreq;
+                        float ny = wy * _caveFreq * 0.7f;  // Y를 약간 압축 → 수평 터널 경향
+                        float nz = (wz + seedOffset) * _caveFreq;
+
+                        // 두 개의 독립적인 3D 퍼린 노이즈 (-1 ~ +1 범위)
+                        float caveA = Noise3D.Perlin(nx, ny, nz);
+                        float caveB = Noise3D.Perlin(nx + 500f, ny + 500f, nz + 500f);
+
+                        // 스파게티 동굴 핵심:
+                        // |caveA|과 |caveB|가 동시에 작을 때 = 두 등위면의 교차점 = 터널
+                        float t1 = Mathf.Abs(caveA);
+                        float t2 = Mathf.Abs(caveB);
+
+                        // 깊이 보너스: 깊을수록 동굴이 약간 넓어짐 (탐험 보상)
+                        float depthRatio = 1f - ((float)wy / iHeight);
+                        float width = _caveWidth * (1f + depthRatio * 0.5f);
+
+                        // 입구 지점에서는 지표면 근처 동굴을 약간 넓혀 자연스러운 개구부 형성
+                        if (isEntrance && wy > iHeight - 6)
+                            width *= 1.4f;
+
+                        if (t1 < width && t2 < width)
+                        {
+                            chunk.SetBlock(lx, ly, lz, BlockType.Air);
+                        }
+                    }
                 }
-            }
 
             chunk.IsDirty = true;
         }
 
-        /// <summary>지형 위에 죽은 나무 기둥, 버섯 등을 배치.</summary>
+        /// <summary>지형 위에 죽은 나무 기둥, 버섯 등을 바이옴별 밀도로 배치.</summary>
         private void GenerateStructures()
         {
             float seedOffset = _seed * 0.3f;
+            float biomeOffset = _seed * 0.1f;
             int totalX = _worldSizeX * Chunk.SIZE;
             int totalZ = _worldSizeZ * Chunk.SIZE;
 
             for (int wx = 0; wx < totalX; wx++)
-            for (int wz = 0; wz < totalZ; wz++)
-            {
-                // 죽은 나무 기둥 (희귀)
-                float treeNoise = Mathf.PerlinNoise(
-                    (wx + seedOffset) * 0.3f,
-                    (wz + seedOffset) * 0.3f);
-
-                if (treeNoise > 0.90f)
+                for (int wz = 0; wz < totalZ; wz++)
                 {
-                    int surfaceY = GetSurfaceY(wx, wz);
-                    if (surfaceY < 0) continue;
+                    // 바이옴별 밀도 파라미터 조회
+                    BiomeType biomeType = BiomeData.SampleType(wx, wz, biomeOffset);
+                    BiomeParams biome = BiomeData.Get(biomeType);
 
-                    // 2~4블록 높이의 죽은 나무
-                    int treeHeight = 2 + Mathf.FloorToInt((treeNoise - 0.90f) * 30f);
-                    treeHeight = Mathf.Clamp(treeHeight, 2, 5);
+                    // 죽은 나무 기둥 (바이옴별 밀도)
+                    float treeNoise = Mathf.PerlinNoise(
+                        (wx + seedOffset) * 0.3f,
+                        (wz + seedOffset) * 0.3f);
 
-                    for (int dy = 1; dy <= treeHeight; dy++)
+                    if (treeNoise > biome.TreeDensity)
                     {
-                        SetBlock(wx, surfaceY + dy, wz, BlockType.DeadWood);
+                        int surfaceY = GetSurfaceY(wx, wz);
+                        if (surfaceY < 0) continue;
+
+                        // 위치 기반 시드로 같은 위치에 항상 같은 나무 생성
+                        int treeSeed = wx * 73856093 ^ wz * 19349663 ^ _seed;
+                        DeadTreeGenerator.Generate(SetBlock, wx, surfaceY, wz, treeSeed);
+                    }
+
+                    // 버섯 (바이옴별 밀도)
+                    float mushNoise = Mathf.PerlinNoise(
+                        (wx + seedOffset + 500f) * 0.15f,
+                        (wz + seedOffset + 500f) * 0.15f);
+
+                    if (mushNoise > biome.MushroomDensity)
+                    {
+                        int surfaceY = GetSurfaceY(wx, wz);
+                        if (surfaceY < 0) continue;
+
+                        SetBlock(wx, surfaceY + 1, wz, BlockType.MushroomBlock);
                     }
                 }
-
-                // 버섯 (보통 빈도)
-                float mushNoise = Mathf.PerlinNoise(
-                    (wx + seedOffset + 500f) * 0.15f,
-                    (wz + seedOffset + 500f) * 0.15f);
-
-                if (mushNoise > 0.85f)
-                {
-                    int surfaceY = GetSurfaceY(wx, wz);
-                    if (surfaceY < 0) continue;
-
-                    SetBlock(wx, surfaceY + 1, wz, BlockType.MushroomBlock);
-                }
-            }
         }
 
         /// <summary>특정 XZ 좌표의 지표면 Y를 반환. 못 찾으면 -1.</summary>

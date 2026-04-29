@@ -12,6 +12,8 @@ namespace Arcpunk.UI
 {
     public class IntroSequence : MonoBehaviour
     {
+        public static Sprite LastSlideImage;
+
         [System.Serializable]
         public class IntroSlide
         {
@@ -29,7 +31,7 @@ namespace Arcpunk.UI
         [SerializeField] private string _nextSceneName = "MainMenu";
 
         [Header("Style")]
-        [SerializeField] private int _narrationFontSize = 28;
+        [SerializeField] private int _narrationFontSize = 42;
         [SerializeField] private Color _narrationColor = new Color(1f, 0.95f, 0.85f);
 
         private Image _imageDisplay;
@@ -93,6 +95,10 @@ namespace Arcpunk.UI
             // 스킵됐든 끝났든, 검정으로 마감 후 씬 전환
             if (_skipRequested)
                 yield return Fade(GetOverlayAlpha(), 1f, 0.3f);
+
+            // 마지막 슬라이드 이미지를 메인 메뉴로 전달
+            if (_slides.Length > 0)
+                LastSlideImage = _slides[_slides.Length - 1].Image;
 
             SceneManager.LoadScene(_nextSceneName);
         }

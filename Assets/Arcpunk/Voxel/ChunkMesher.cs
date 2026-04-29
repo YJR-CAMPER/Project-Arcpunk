@@ -52,12 +52,18 @@ namespace Arcpunk.Voxel
         public static Mesh GenerateMesh(Chunk chunk, System.Func<int, int, int, BlockType> getWorldBlock)
         {
             var vertices  = new List<Vector3>();
-            var triangles = new List<int>();
+            var triangles = new List<int>();     // submesh 0: 일반 블록
+            var crossTris = new List<int>();     // submesh 1: X자 빌보드
             var uvs       = new List<Vector2>();
-            var colors    = new List<Color>(); // AO를 Color 채널에 저장
+            var colors    = new List<Color>();
 
             int atlasSize = BlockData.AtlasSize;
             float tileSize = 1f / atlasSize;
+
+            int crossCols = BlockData.CrossAtlasCols;
+            int crossRows = BlockData.CrossAtlasRows;
+            float crossTileW = 1f / crossCols;
+            float crossTileH = 1f / crossRows;
 
             for (int y = 0; y < Chunk.SIZE; y++)
             for (int z = 0; z < Chunk.SIZE; z++)
@@ -67,6 +73,15 @@ namespace Arcpunk.Voxel
                 if (type == BlockType.Air) continue;
 
                 ref BlockDef def = ref BlockData.Defs[(ushort)type];
+
+                // X자 빌보드 블록 (버섯, 피뢰침 등)
+                if (def.IsCross)
+                {
+                    AddCrossBillboard(vertices, crossTris, uvs, colors,
+                        x, y, z, ref def, crossCols, crossRows, crossTileW, crossTileH);
+                    continue;
+                }
+
                 if (!def.IsSolid) continue; // 비고체(배선 등)는 메싱 스킵
 
                 // 월드 좌표
@@ -164,13 +179,95 @@ namespace Arcpunk.Voxel
                 mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
             mesh.SetVertices(vertices);
-            mesh.SetTriangles(triangles, 0);
             mesh.SetUVs(0, uvs);
             mesh.SetColors(colors);
+
+            // 서브메시: 0=일반 블록, 1=X자 빌보드
+            mesh.subMeshCount = 2;
+            mesh.SetTriangles(triangles, 0);
+            mesh.SetTriangles(crossTris, 1);
+
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
 
             return mesh;
+        }
+
+        /// <summary>
+        /// X자 빌보드 생성. 대각선 쿼드 2장 × 양면 = 4면.
+        /// 마인크래프트 꽃/풀 스타일.
+        /// </summary>
+        private static void AddCrossBillboard(
+            List<Vector3> vertices, List<int> triangles,
+            List<Vector2> uvs, List<Color> colors,
+            int x, int y, int z,
+            ref BlockDef def, int crossCols, int crossRows,
+            float crossTileW, float crossTileH)
+        {
+            int texIndex = def.TexCross;
+            int texCol = texIndex % crossCols;
+            int texRow = texIndex / crossCols;
+            float u0 = texCol * crossTileW + 0.001f;
+            float v0 = 1f - (texRow + 1) * crossTileH + 0.001f;
+            float u1 = u0 + crossTileW - 0.002f;
+            float v1 = v0 + crossTileH - 0.002f;
+
+            Vector2[] quadUVs = { new(u0, v0), new(u0, v1), new(u1, v1), new(u1, v0) };
+
+            // 약간 안쪽으로 (블록 경계에 딱 붙으면 z-fighting)
+            float inset = 0.15f;
+            Vector3 pos = new Vector3(x, y, z);
+
+            // 쿼드 1: 대각선 (0,0,0)→(1,0,1) 방향
+            Vector3[] q1 = {
+                pos + new Vector3(inset,  0, inset),
+                pos + new Vector3(inset,  1, inset),
+                pos + new Vector3(1-inset, 1, 1-inset),
+                pos + new Vector3(1-inset, 0, 1-inset),
+            };
+
+            // 쿼드 2: 대각선 (1,0,0)→(0,0,1) 방향
+            Vector3[] q2 = {
+                pos + new Vector3(1-inset, 0, inset),
+                pos + new Vector3(1-inset, 1, inset),
+                pos + new Vector3(inset,  1, 1-inset),
+                pos + new Vector3(inset,  0, 1-inset),
+            };
+
+            // 밝기 (AO 없이 고정)
+            Color bright = new Color(0.9f, 0.9f, 0.9f, 1f);
+            Color dark   = new Color(0.7f, 0.7f, 0.7f, 1f);
+
+            // 쿼드 1 앞면
+            AddQuad(vertices, triangles, uvs, colors, q1, quadUVs, bright);
+            // 쿼드 1 뒷면 (정점 순서 반전)
+            Vector3[] q1r = { q1[3], q1[2], q1[1], q1[0] };
+            Vector2[] uvR = { quadUVs[3], quadUVs[2], quadUVs[1], quadUVs[0] };
+            AddQuad(vertices, triangles, uvs, colors, q1r, uvR, dark);
+
+            // 쿼드 2 앞면
+            AddQuad(vertices, triangles, uvs, colors, q2, quadUVs, bright);
+            // 쿼드 2 뒷면
+            Vector3[] q2r = { q2[3], q2[2], q2[1], q2[0] };
+            AddQuad(vertices, triangles, uvs, colors, q2r, uvR, dark);
+        }
+
+        private static void AddQuad(
+            List<Vector3> vertices, List<int> triangles,
+            List<Vector2> uvs, List<Color> colors,
+            Vector3[] verts, Vector2[] quadUVs, Color color)
+        {
+            int vi = vertices.Count;
+
+            for (int i = 0; i < 4; i++)
+            {
+                vertices.Add(verts[i]);
+                uvs.Add(quadUVs[i]);
+                colors.Add(color);
+            }
+
+            triangles.Add(vi);     triangles.Add(vi + 1); triangles.Add(vi + 2);
+            triangles.Add(vi);     triangles.Add(vi + 2); triangles.Add(vi + 3);
         }
 
         /// <summary>

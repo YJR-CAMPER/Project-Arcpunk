@@ -1,4 +1,4 @@
-// ── BlockInteraction.cs ── (v2 — 인벤토리 연동)
+﻿// ── BlockInteraction.cs ── (v2 — 인벤토리 연동)
 // 기존 BlockInteraction을 완전 교체.
 // 핫바에서 ItemStack을 읽어 블록 설치, 도구 기반 파괴 속도/드롭.
 
@@ -14,6 +14,17 @@ namespace Arcpunk.Voxel
         [SerializeField] private float _reachDistance = 6f;
         [SerializeField] private LayerMask _voxelLayer;
 
+        [Header("Melee Combat")]
+        [SerializeField] private float _meleeRange = 3.5f;
+        [SerializeField] private float _meleeCooldown = 0.4f;
+        [SerializeField] private LayerMask _ghoulLayer;
+
+        [Header("Melee Damage (도구별)")]
+        [SerializeField] private float _handDamage = 2f;
+        [SerializeField] private float _pickaxeDamage = 8f;
+        [SerializeField] private float _axeDamage = 12f;
+        [SerializeField] private float _knifeDamage = 18f;
+
         [Header("Visual")]
         [SerializeField] private GameObject _selectionHighlight;
 
@@ -25,6 +36,10 @@ namespace Arcpunk.Voxel
         private float _breakProgress;
         private Vector3Int _breakingBlockPos;
         private bool _isBreaking;
+        private float _swingRepeatTimer;
+
+        // 근접 공격 쿨타임
+        private float _meleeTimer;
 
         private void Start()
         {
@@ -35,8 +50,10 @@ namespace Arcpunk.Voxel
 
         private void Update()
         {
-            // 인벤토리 UI가 열려있으면 블록 조작 안 함
-            // (향후 InventoryUI.IsOpen 체크)
+            if (UI.KnappingUI.Instance != null && UI.KnappingUI.Instance.IsOpen) return;
+            if (UI.InventoryUI.Instance != null && UI.InventoryUI.Instance.IsOpen) return;
+
+            if (_meleeTimer > 0) _meleeTimer -= Time.deltaTime;
 
             HandleBlockInteraction();
         }
@@ -51,6 +68,11 @@ namespace Arcpunk.Voxel
             {
                 ResetBreaking();
                 HideHighlight();
+
+                // 블록이 안 맞았으면 → 근접 공격 시도
+                if (Input.GetMouseButton(0))
+                    TryMeleeAttack();
+
                 return;
             }
 
@@ -102,10 +124,19 @@ namespace Arcpunk.Voxel
                     _breakingBlockPos = targetBlock;
                     _breakProgress = 0;
                     _isBreaking = true;
+                    HeldVoxelItem.Instance?.TriggerSwing();
                 }
 
                 // 도구 속도 적용
                 _breakProgress += Time.deltaTime * speedMult;
+
+                // 캐는 동안 반복 스윙 (마크 스타일)
+                _swingRepeatTimer -= Time.deltaTime;
+                if (_swingRepeatTimer <= 0)
+                {
+                    HeldVoxelItem.Instance?.TriggerSwing();
+                    _swingRepeatTimer = 0.35f; // 스윙 반복 간격
+                }
 
                 if (_breakProgress >= blockDef.Hardness)
                 {
@@ -184,16 +215,68 @@ namespace Arcpunk.Voxel
                 _world.SetBlock(placeBlock.x, placeBlock.y, placeBlock.z,
                     selectedItem.Def.BlockType);
                 _world.RebuildDirtyChunks();
+                HeldVoxelItem.Instance?.TriggerSwing();
 
                 // 인벤토리에서 1개 소모
                 _inventory.ConsumeSelected();
             }
         }
 
+        // ═══════════════════════════════════════
+        // 근접 공격
+        // ═══════════════════════════════════════
+
+        private void TryMeleeAttack()
+        {
+            if (_meleeTimer > 0) return;
+
+            Ray ray = new Ray(_cam.transform.position, _cam.transform.forward);
+
+            // 구울 레이어에 레이캐스트
+            if (!Physics.Raycast(ray, out RaycastHit hit, _meleeRange, _ghoulLayer))
+                return;
+
+            // 구울 컴포넌트 찾기 (자식에 있을 수 있으므로 부모도 체크)
+            var ghoul = hit.collider.GetComponent<Ghoul.SimpleGhoul>();
+            if (ghoul == null)
+                ghoul = hit.collider.GetComponentInParent<Ghoul.SimpleGhoul>();
+            if (ghoul == null || !ghoul.IsAlive)
+                return;
+
+            // 데미지 계산
+            float damage = GetMeleeDamage();
+            ghoul.TakeDamage(damage);
+
+            // 쿨타임 적용
+            _meleeTimer = _meleeCooldown;
+
+            // 스윙 애니메이션
+            HeldVoxelItem.Instance?.TriggerSwing();
+
+            Debug.Log($"[Melee] Hit {ghoul.name} for {damage} damage!");
+        }
+
+        /// <summary>현재 들고 있는 도구에 따른 근접 데미지.</summary>
+        private float GetMeleeDamage()
+        {
+            var item = _inventory?.GetSelectedItem();
+            if (item == null || item.IsEmpty)
+                return _handDamage;
+
+            return item.Def.ToolType switch
+            {
+                ToolType.Knife => _knifeDamage,
+                ToolType.Axe => _axeDamage,
+                ToolType.Pickaxe => _pickaxeDamage,
+                _ => _handDamage,
+            };
+        }
+
         private void ResetBreaking()
         {
             _isBreaking = false;
             _breakProgress = 0;
+            _swingRepeatTimer = 0;
         }
 
         private void ShowHighlight(Vector3Int blockPos)

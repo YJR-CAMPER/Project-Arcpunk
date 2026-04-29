@@ -1,7 +1,4 @@
-﻿// ── MainMenuUI.cs ──
-// 메인 메뉴 씬의 UI. Canvas를 런타임에 자동 생성.
-// Start: 게임 씬 로드 / Quit: 애플리케이션 종료
-
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
@@ -13,15 +10,78 @@ namespace Arcpunk.UI
     {
         [SerializeField] private string _gameSceneName = "SampleScene";
 
+        [Header("Entrance Effect")]
+        [SerializeField] private AudioClip _thunderSound;
+        [SerializeField] private float _darkHoldTime = 0.6f;   // 암전 유지 시간
+        [SerializeField] private float _flashTime = 0.15f;     // 흰 플래시 지속
+        [SerializeField] private float _uiFadeInTime = 0.8f;
+
+        private CanvasGroup _uiGroup;     // 타이틀+버튼 묶음 (페이드용)
+        private Image _flashOverlay;      // 흰색 플래시
+        private Image _darkOverlay;       // 초기 암전
+        private AudioSource _audio;
+
         private void Start()
         {
-            // 커서 보이게
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
             EnsureEventSystem();
             CreateUI();
+            StartCoroutine(PlayEntrance());
         }
+
+        // ─────────────────────────────────────────
+        // 등장 시퀀스: 암전 → 플래시+천둥 → UI 등장
+        // ─────────────────────────────────────────
+        private IEnumerator PlayEntrance()
+        {
+            // 시작 상태: 배경 이미지는 보이지만 그 위에 검정 오버레이
+            SetAlpha(_darkOverlay, 1f);
+            SetAlpha(_flashOverlay, 0f);
+            _uiGroup.alpha = 0f;
+
+            // 잠깐 암전 유지 (기대감)
+            yield return new WaitForSeconds(_darkHoldTime);
+
+            // ⚡ 꽈릉! — 사운드 + 흰 플래시 + 암전 제거
+            if (_audio != null && _thunderSound != null)
+                _audio.PlayOneShot(_thunderSound);
+
+            SetAlpha(_flashOverlay, 1f);
+            SetAlpha(_darkOverlay, 0f);   // 즉시 제거 — 플래시가 덮고 있음
+
+            // 플래시 페이드아웃
+            float t = 0f;
+            while (t < _flashTime)
+            {
+                t += Time.deltaTime;
+                SetAlpha(_flashOverlay, 1f - (t / _flashTime));
+                yield return null;
+            }
+            SetAlpha(_flashOverlay, 0f);
+
+            // UI 페이드인
+            t = 0f;
+            while (t < _uiFadeInTime)
+            {
+                t += Time.deltaTime;
+                _uiGroup.alpha = Mathf.Clamp01(t / _uiFadeInTime);
+                yield return null;
+            }
+            _uiGroup.alpha = 1f;
+        }
+
+        private void SetAlpha(Image img, float a)
+        {
+            var c = img.color;
+            c.a = Mathf.Clamp01(a);
+            img.color = c;
+        }
+
+        // ─────────────────────────────────────────
+        // UI 생성
+        // ─────────────────────────────────────────
 
         private void EnsureEventSystem()
         {
@@ -46,7 +106,12 @@ namespace Arcpunk.UI
             scaler.referenceResolution = new Vector2(1920, 1080);
             canvasObj.AddComponent<GraphicRaycaster>();
 
-            // 배경 (어두운 단색 — 나중에 스카이박스/이미지로 교체 가능)
+            // 오디오 소스
+            _audio = gameObject.AddComponent<AudioSource>();
+            _audio.playOnAwake = false;
+            _audio.volume = 0.9f;
+
+            // ── 배경 이미지 (인트로 마지막 슬라이드) ──
             var bgObj = new GameObject("BG");
             bgObj.transform.SetParent(canvasObj.transform, false);
             var bgRect = bgObj.AddComponent<RectTransform>();
@@ -54,25 +119,75 @@ namespace Arcpunk.UI
             bgRect.anchorMax = Vector2.one;
             bgRect.offsetMin = Vector2.zero;
             bgRect.offsetMax = Vector2.zero;
-            bgObj.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.08f, 1f);
+            var bgImage = bgObj.AddComponent<Image>();
+            if (IntroSequence.LastSlideImage != null)
+            {
+                bgImage.sprite = IntroSequence.LastSlideImage;
+                bgImage.preserveAspect = false;   // 화면 꽉 채우기
+                bgImage.color = Color.white;
+            }
+            else
+            {
+                // 인트로를 건너뛰거나 씬 단독 실행 시 폴백
+                bgImage.color = new Color(0.05f, 0.05f, 0.08f, 1f);
+            }
+
+            // ── UI 묶음 (CanvasGroup으로 일괄 페이드) ──
+            var uiRoot = new GameObject("UIRoot");
+            uiRoot.transform.SetParent(canvasObj.transform, false);
+            var uiRootRect = uiRoot.AddComponent<RectTransform>();
+            uiRootRect.anchorMin = Vector2.zero;
+            uiRootRect.anchorMax = Vector2.one;
+            uiRootRect.offsetMin = Vector2.zero;
+            uiRootRect.offsetMax = Vector2.zero;
+            _uiGroup = uiRoot.AddComponent<CanvasGroup>();
+
+            // 반투명 어두운 베일 (배경 이미지 위에 깔아서 텍스트 가독성 확보)
+            var veilObj = new GameObject("Veil");
+            veilObj.transform.SetParent(uiRoot.transform, false);
+            var veilRect = veilObj.AddComponent<RectTransform>();
+            veilRect.anchorMin = Vector2.zero;
+            veilRect.anchorMax = Vector2.one;
+            veilRect.offsetMin = Vector2.zero;
+            veilRect.offsetMax = Vector2.zero;
+            veilObj.AddComponent<Image>().color = new Color(0, 0, 0, 0.45f);
 
             // 타이틀
-            CreateLabel("LAND OF THUNDER",
-                canvasObj.transform,
-                new Vector2(0, 200), new Vector2(1200, 100),
+            CreateLabel("LAND OF THUNDER", uiRoot.transform,
+                new Vector2(0, 200), new Vector2(1400, 120),
                 72, new Color(1f, 0.9f, 0.4f));
 
-            // 서브타이틀
-            CreateLabel("— Arcpunk —",
-                canvasObj.transform,
-                new Vector2(0, 130), new Vector2(600, 40),
-                24, new Color(0.7f, 0.7f, 0.8f));
+            CreateLabel("— Arcpunk —", uiRoot.transform,
+                new Vector2(0, 120), new Vector2(600, 40),
+                24, new Color(0.8f, 0.8f, 0.9f));
 
-            // 버튼들
-            CreateButton("게임 시작", canvasObj.transform,
+            // 버튼
+            CreateButton("게임 시작", uiRoot.transform,
                 new Vector2(0, -20), OnStartClicked);
-            CreateButton("나가기", canvasObj.transform,
+            CreateButton("나가기", uiRoot.transform,
                 new Vector2(0, -100), OnQuitClicked);
+
+            // ── 오버레이들 (UI 위, 등장 연출용) ──
+            _darkOverlay = CreateFullscreenOverlay(canvasObj.transform,
+                "DarkOverlay", Color.black);
+            _flashOverlay = CreateFullscreenOverlay(canvasObj.transform,
+                "FlashOverlay", Color.white);
+            _flashOverlay.raycastTarget = false;
+            _darkOverlay.raycastTarget = false;
+        }
+
+        private Image CreateFullscreenOverlay(Transform parent, string name, Color color)
+        {
+            var obj = new GameObject(name);
+            obj.transform.SetParent(parent, false);
+            var rect = obj.AddComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            var img = obj.AddComponent<Image>();
+            img.color = color;
+            return img;
         }
 
         private void CreateLabel(string text, Transform parent,
