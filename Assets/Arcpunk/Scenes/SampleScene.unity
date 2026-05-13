@@ -1255,6 +1255,9 @@ MonoBehaviour:
   _entranceChance: 0.92
   _chunkMaterial: {fileID: 2100000, guid: 0f50be4121cfb284ab6e222e5597ba37, type: 2}
   _crossMaterial: {fileID: 2100000, guid: d3d4277985e807c40ba654bf5eeba982, type: 2}
+  _maxMeshPerFrame: 4
+  _maxColliderPerFrame: 1
+  _nearDistance: 32
 --- !u!4 &1276431153
 Transform:
   m_ObjectHideFlags: 0
@@ -1446,15 +1449,6 @@ MonoBehaviour:
   _voxelLayer:
     serializedVersion: 2
     m_Bits: 64
-  _meleeRange: 3.5
-  _meleeCooldown: 0.4
-  _ghoulLayer:
-    serializedVersion: 2
-    m_Bits: 0
-  _handDamage: 2
-  _pickaxeDamage: 8
-  _axeDamage: 12
-  _knifeDamage: 18
   _selectionHighlight: {fileID: 1658255817776532510, guid: b1a9483ee16052343901588057fea86d, type: 3}
 --- !u!114 &1431403507
 MonoBehaviour:
@@ -1660,11 +1654,182 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6dd9215a15dd34445b47ba23445822f1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _holdPosition: {x: 0.4, y: -0.3, z: 0.6}
-  _holdRotation: {x: 0, y: -85, z: 0}
-  _holdScale: 2.5
+  _holdPosition: {x: 0.55, y: 0.994, z: 0.1}
+  _holdRotation: {x: 36.43, y: 90, z: 90}
+  _holdScale: 1.2
+  _editMode: 0
+  _applyCurrentTransform: 0
   _swingSpeed: 8
-  _swingAngle: 40
+  _swingScale: 1
+  _swingCurveX:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.1583313
+      value: -0.0070861876
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.69999695
+      value: 0.0028305054
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _swingCurveZ:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.39133015
+      value: 0.4657565
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.71980286
+      value: -0.4257141
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _swingOffsetY:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.15
+      value: 0.06
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.5
+      value: -0.05
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _swingOffsetZ:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.15
+      value: -0.04
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.5
+      value: 0.08
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _muzzleOffset: {x: 0, y: 0.8, z: 0.3}
 --- !u!23 &1590036549
 MeshRenderer:
   m_ObjectHideFlags: 0

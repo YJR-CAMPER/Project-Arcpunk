@@ -1,6 +1,7 @@
 // ── ChunkRenderer.cs ──
-// 청크의 시각적 표현을 담당하는 MonoBehaviour.
-// VoxelWorld가 생성하고 관리한다.
+// 청크 렌더러. VoxelWorld가 생성하고 관리.
+// [최적화] UpdateMeshOnly: 메시만 갱신 (빠름)
+//          UpdateCollider: MeshCollider만 갱신 (무거움, 지연 호출)
 
 using UnityEngine;
 
@@ -24,7 +25,6 @@ namespace Arcpunk.Voxel
             _meshCollider = GetComponent<MeshCollider>();
         }
 
-        /// <summary>청크 데이터를 할당하고 위치를 설정한다.</summary>
         public void Initialize(Chunk chunk, Material material)
         {
             ChunkData = chunk;
@@ -36,28 +36,46 @@ namespace Arcpunk.Voxel
             );
             gameObject.name = $"Chunk_{chunk.Coord}";
 
-            // 레이어 설정 — "Voxel" 레이어가 없으면 경고 후 Default 사용
-            int voxelLayer = LayerMask.NameToLayer("Voxel");
-            if (voxelLayer >= 0)
-                gameObject.layer = voxelLayer;
-            else
-                Debug.LogWarning("[ChunkRenderer] 'Voxel' layer not found. " +
-                    "Edit → Project Settings → Tags and Layers에서 추가하세요.");
+            int layer = LayerMask.NameToLayer("Voxel");
+            if (layer >= 0)
+                gameObject.layer = layer;
         }
 
-        /// <summary>메시를 갱신한다. VoxelWorld에서 더티 청크에 대해 호출.</summary>
+        /// <summary>메시 + 콜라이더 모두 갱신. 초기 로드용.</summary>
         public void UpdateMesh(Mesh mesh)
         {
             if (mesh == null)
             {
                 _meshFilter.sharedMesh = null;
                 _meshCollider.sharedMesh = null;
+                ChunkData.IsDirty = false;
                 return;
             }
 
             _meshFilter.sharedMesh = mesh;
             _meshCollider.sharedMesh = mesh;
             ChunkData.IsDirty = false;
+        }
+
+        /// <summary>메시만 갱신 (콜라이더 제외). 프레임 드랍 방지.</summary>
+        public void UpdateMeshOnly(Mesh mesh)
+        {
+            if (mesh == null)
+            {
+                _meshFilter.sharedMesh = null;
+                ChunkData.IsDirty = false;
+                return;
+            }
+
+            _meshFilter.sharedMesh = mesh;
+            ChunkData.IsDirty = false;
+        }
+
+        /// <summary>MeshCollider만 갱신. 지연 호출용.</summary>
+        public void UpdateCollider()
+        {
+            _meshCollider.sharedMesh = null; // 먼저 비워야 갱신됨
+            _meshCollider.sharedMesh = _meshFilter.sharedMesh;
         }
     }
 }
