@@ -796,6 +796,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 963194228}
+  - {fileID: 1590036547}
   m_Father: {fileID: 1431403509}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1016276126
@@ -848,9 +849,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _baseGhoulCount: 8
   _ghoulCountMult: 1.5
-  _maxGhoulsPerWave: 80
-  _bossStartWave: 7
-  _megaBossStartWave: 10
+  _maxGhoulsPerWave: 20
+  _bossStartWave: 2
+  _megaBossStartWave: 4
   _multiDirStartWave: 4
   _spawnInterval: 0.5
   _bossSpawnDelay: 5
@@ -1511,7 +1512,6 @@ Transform:
   m_Children:
   - {fileID: 1016276125}
   - {fileID: 438623110}
-  - {fileID: 1590036547}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1431403510
@@ -1636,11 +1636,11 @@ Transform:
   m_GameObject: {fileID: 1590036546}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.6, z: 0}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 1431403509}
+  m_Father: {fileID: 1016276125}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1590036548
 MonoBehaviour:
@@ -1654,7 +1654,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6dd9215a15dd34445b47ba23445822f1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _holdPosition: {x: 0.55, y: 0.994, z: 0.1}
+  _holdPosition: {x: 0.55, y: -0.34, z: 0.42}
   _holdRotation: {x: 36.43, y: 90, z: 90}
   _holdScale: 1.2
   _editMode: 0
