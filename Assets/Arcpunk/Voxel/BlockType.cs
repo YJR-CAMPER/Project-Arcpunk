@@ -200,15 +200,6 @@ namespace Arcpunk.Voxel
                 TexCross = 0,  // 크로스 아틀라스: 피뢰침
             });
 
-            Set(BlockType.CopperWire, new BlockDef
-            {
-                Name = "Copper Wire", IsSolid = true,
-                Hardness = 0.5f,
-                TexTop = 11, TexSide = 11, TexBottom = 11,
-                MinTool = ToolTier.Hand,
-                IsPowerBlock = true, PowerRole = PowerRole.Conductor,
-            });
-
             Set(BlockType.CopperBattery, new BlockDef
             {
                 Name = "Copper Battery", IsSolid = true, Hardness = 2f,

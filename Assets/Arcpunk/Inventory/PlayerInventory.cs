@@ -102,6 +102,12 @@ namespace Arcpunk.Inventory
             return remaining; // 0이면 전부 넣은 것
         }
 
+        /// <summary>특정 아이템을 n개 이상 보유 중인지 확인.</summary>
+        public bool HasItem(ItemType type, int count = 1)
+        {
+            return CountItem(type) >= count;
+        }
+
         /// <summary>특정 아이템을 n개 제거. 실제 제거된 수량 반환.</summary>
         public int RemoveItem(ItemType type, int count = 1)
         {
@@ -190,6 +196,14 @@ namespace Arcpunk.Inventory
             AddItem(ItemType.Mushroom, 16);
             AddItem(ItemType.CopperOre, 32);
             AddItem(ItemType.IronOre, 32);
+
+            // ── 총기 + 탄약 ──
+            AddItem(ItemType.Pistol, 1);
+            AddItem(ItemType.Rifle, 1);
+            AddItem(ItemType.Minigun, 1);
+            AddItem(ItemType.PistolAmmo, 64);
+            AddItem(ItemType.RifleAmmo, 64);
+            AddItem(ItemType.MinigunAmmo, 128);
 
             // 전체 슬롯 갱신 알림
             for (int i = 0; i < TOTAL_SIZE; i++)

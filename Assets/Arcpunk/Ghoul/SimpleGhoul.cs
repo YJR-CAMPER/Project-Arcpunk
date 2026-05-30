@@ -1,4 +1,4 @@
-// ── SimpleGhoul.cs ──
+﻿// ── SimpleGhoul.cs ──
 // 마인크래프트 좀비 스타일 구울.
 // NavMesh 없이 복셀 지형을 직접 탐색.
 // 자극(빛/소리)에 반응하여 접근, 플레이어 직접 감지 시 추적.
@@ -121,6 +121,7 @@ namespace Arcpunk.Ghoul
             {
                 _targetPosition = stimulus.Value.Origin;
                 _state = GhoulState.Chase;
+                Audio.GameAudioManager.Instance?.PlayGhoulAggro(transform.position);
                 return;
             }
 
@@ -132,6 +133,7 @@ namespace Arcpunk.Ghoul
                 {
                     _targetPosition = player.transform.position;
                     _state = GhoulState.Chase;
+                    Audio.GameAudioManager.Instance?.PlayGhoulAggro(transform.position);
                     return;
                 }
             }
@@ -231,6 +233,7 @@ namespace Arcpunk.Ghoul
                 if (playerHealth != null)
                     playerHealth.TakeDamage(Damage, transform.position);
 
+                Audio.GameAudioManager.Instance?.PlayGhoulAttack(transform.position);
                 _attackTimer = AttackCooldown;
                 StartCoroutine(AttackFlash());
             }
@@ -404,6 +407,7 @@ namespace Arcpunk.Ghoul
             Health -= amount;
             StartCoroutine(DamageFlash());
             _ghoulAnim?.TriggerHit();
+            Audio.GameAudioManager.Instance?.PlayGhoulHit(transform.position);
 
             // 피격 넉백 (공격 반대 방향으로)
             var player = PlayerController.Instance;
@@ -422,6 +426,7 @@ namespace Arcpunk.Ghoul
 
         private void Die()
         {
+            Audio.GameAudioManager.Instance?.PlayGhoulDeath(transform.position);
             // 보스 사망 시 드롭 등 처리 가능
             if (IsBoss)
             {

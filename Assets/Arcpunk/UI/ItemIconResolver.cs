@@ -27,7 +27,12 @@ namespace Arcpunk.Inventory
         //  [6]  Mushroom           [16] CopperAxe
         //  [7]  StonePickaxeHead   [17] IronPickaxe
         //  [8]  StoneAxeHead       [18] IronAxe
-        //  [9]  StoneKnifeHead     [19] ArcGun
+        //  [9]  StoneKnifeHead     [19] Pistol
+        //                             [20] Rifle
+        //                             [21] Minigun
+        //                             [22] PistolAmmo
+        //                             [23] RifleAmmo
+        //                             [24] MinigunAmmo
 
         private void Awake() { Instance = this; }
 
@@ -54,7 +59,12 @@ namespace Arcpunk.Inventory
                 ItemType.CopperAxe => 16,
                 ItemType.IronPickaxe => 17,
                 ItemType.IronAxe => 18,
-                ItemType.ArcGun => 19,
+                ItemType.Pistol => 19,
+                ItemType.Rifle => 20,
+                ItemType.Minigun => 21,
+                ItemType.PistolAmmo => 22,
+                ItemType.RifleAmmo => 23,
+                ItemType.MinigunAmmo => 24,
                 _ => -1,
             };
         }
@@ -113,7 +123,10 @@ namespace Arcpunk.Inventory
                 if (sprite != null)
                 {
                     var tex = ExtractTexture(sprite);
-                    voxelHeld.ShowItem(tex);
+                    var heldType = ItemDatabase.IsGun(type)
+                        ? Voxel.HeldItemType.Gun
+                        : Voxel.HeldItemType.Tool;
+                    voxelHeld.ShowItem(tex, heldType);
                 }
                 else
                 {

@@ -1,13 +1,15 @@
-// ── VoxelPowerSystem.cs ──
-// 복셀 좌표 기반 전력 시스템.
-// 배선(CopperWire)을 BFS로 따라가며 연결된 전력망을 자동 구성.
-// 매 틱: 발전 → 충전 → 소비.
+﻿// ── VoxelPowerSystem.cs (수정 v3) ──
+// 기존 BlockDef.IsPowerBlock / BlockDef.PowerRole / BlockDef.BatteryCapacity 등을
+// 그대로 사용. PowerRole enum은 Arcpunk.Voxel에 이미 정의되어 있으므로 재정의 X.
+//
+// 기존 시스템이 호출하던 API 전부 유지:
+//   - GetGlobalPowerStats()     → ArcGun, DebugHUD
+//   - ConsumeGlobal()           → ArcGun
+//   - GetAllProducerPositions() → LightningSystem
 
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using Arcpunk.Voxel;
-using Arcpunk.Weather;
 
 namespace Arcpunk.Power
 {
@@ -15,35 +17,64 @@ namespace Arcpunk.Power
     {
         public static VoxelPowerSystem Instance { get; private set; }
 
+        // ── 참조 ──
         private VoxelWorld _world;
+
+        // ── 블록 좌표 → powered 여부 ──
+        private Dictionary<Vector3Int, bool> _poweredBlocks = new();
+
+        // ── 배터리 저장량 ──
+        private Dictionary<Vector3Int, float> _batteryStorage = new();
+
+        // ── 네트워크 ──
         private List<PowerNetwork> _networks = new();
+        private bool _isDirty = true;
 
-        // 전력 블록 좌표 → 소속 네트워크
-        private Dictionary<Vector3Int, PowerNetwork> _blockToNetwork = new();
+        // 등록된 전력 블록 좌표
+        private HashSet<Vector3Int> _registeredBlocks = new();
 
-        // 모든 피뢰침 좌표 (LightningSystem용)
-        private List<Vector3Int> _allProducers = new();
+        // BFS 버퍼
+        private Queue<Vector3Int> _bfsQueue = new();
+        private HashSet<Vector3Int> _bfsVisited = new();
+        private List<Vector3Int> _neighborBuf = new(8);
 
-        // 더티 플래그 — 블록 변경 시 true, 다음 틱에 리빌드
-        private bool _needsRebuild = true;
+        // =====================================================
+        //  내부 구조
+        // =====================================================
+
+        private class PowerNetwork
+        {
+            public List<Vector3Int> Producers = new();
+            public List<Vector3Int> Storages = new();
+            public List<Vector3Int> Consumers = new();
+            public float TotalProduced;
+        }
+
+        // =====================================================
+        //  초기화
+        // =====================================================
 
         private void Awake()
         {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
             Instance = this;
+        }
+
+        public void Initialize(Core.TickSystem tick, VoxelWorld world)
+        {
+            _world = world;
+            if (tick != null)
+                tick.OnTick += OnTick;
         }
 
         private void Start()
         {
-            _world = VoxelWorld.Instance;
-
-            var tick = Core.TickSystem.Instance;
-            if (tick != null)
-                tick.OnTick += OnTick;
-
-            // 낙뢰 이벤트 구독 (피뢰침에 낙뢰가 맞으면 보너스 발전)
-            var lightning = LightningSystem.Instance;
-            if (lightning != null)
-                lightning.OnLightningStrike += OnLightningStrike;
+            if (_world == null)
+                _world = VoxelWorld.Instance;
         }
 
         private void OnDestroy()
@@ -51,202 +82,327 @@ namespace Arcpunk.Power
             var tick = Core.TickSystem.Instance;
             if (tick != null)
                 tick.OnTick -= OnTick;
-
-            var lightning = LightningSystem.Instance;
-            if (lightning != null)
-                lightning.OnLightningStrike -= OnLightningStrike;
         }
 
-        // ═══════════════════════════════════════
-        // 공개 API
-        // ═══════════════════════════════════════
-
-        /// <summary>블록 변경 시 호출. 다음 틱에 네트워크 리빌드.</summary>
-        public void OnBlockChanged(int wx, int wy, int wz, BlockType type)
-        {
-            _needsRebuild = true;
-        }
-
-        /// <summary>모든 피뢰침 좌표 반환 (LightningSystem용).</summary>
-        public List<Vector3Int> GetAllProducerPositions() => _allProducers;
-
-        /// <summary>특정 좌표의 소비 블록이 현재 전력을 받고 있는지 확인.</summary>
-        public bool IsBlockPowered(Vector3Int pos)
-        {
-            if (_blockToNetwork.TryGetValue(pos, out PowerNetwork network))
-                return network.IsConsumerPowered(pos);
-            return false;
-        }
-
-        /// <summary>특정 좌표가 속한 네트워크의 총 저장량.</summary>
-        public float GetStoredPower(Vector3Int pos)
-        {
-            if (_blockToNetwork.TryGetValue(pos, out PowerNetwork network))
-                return network.TotalStored;
-            return 0;
-        }
-
-        /// <summary>모든 네트워크의 총 저장/총 용량.</summary>
-        public (float stored, float capacity) GetGlobalPowerStats()
-        {
-            float stored = 0, capacity = 0;
-            foreach (var net in _networks)
-            {
-                stored += net.TotalStored;
-                capacity += net.TotalCapacity;
-            }
-            return (stored, capacity);
-        }
-
-        public void ConsumeGlobal(float amount)
-        {
-            float remaining = amount;
-            foreach (var network in _networks)
-            {
-                if (remaining <= 0) break;
-                float consumed = network.ConsumeFromStorage(remaining);
-                remaining -= consumed;
-
-            }
-        }
-
-        // ═══════════════════════════════════════
-        // 틱 처리
-        // ═══════════════════════════════════════
+        // =====================================================
+        //  틱 루프
+        // =====================================================
 
         private void OnTick(int tickNumber)
         {
-            if (_needsRebuild)
+            if (_world == null) return;
+
+            if (_isDirty)
             {
-                RebuildAllNetworks();
-                _needsRebuild = false;
+                RebuildNetworks();
+                _isDirty = false;
             }
 
-            var weather = WeatherSystem.Instance?.CurrentWeather
-                          ?? new WeatherState { SurgeMultiplier = 0.1f };
+            _poweredBlocks.Clear();
 
-            foreach (var network in _networks)
-                network.Tick(weather, _world);
-        }
-
-        // ═══════════════════════════════════════
-        // 낙뢰 처리
-        // ═══════════════════════════════════════
-
-        private void OnLightningStrike(Vector3 worldPos)
-        {
-            // 낙뢰 지점에서 가장 가까운 피뢰침에 보너스 발전
-            Vector3Int strikeBlock = VoxelWorld.WorldPosToBlockCoord(worldPos);
-
-            float closestDist = float.MaxValue;
-            PowerNetwork closestNetwork = null;
-
-            foreach (var rod in _allProducers)
+            foreach (var net in _networks)
             {
-                float dist = Vector3Int.Distance(rod, strikeBlock);
-                if (dist < closestDist && dist < 5f) // 5블록 이내만
-                {
-                    closestDist = dist;
-                    if (_blockToNetwork.TryGetValue(rod, out PowerNetwork net))
-                        closestNetwork = net;
-                }
-            }
-
-            if (closestNetwork != null)
-            {
-                // 직격 보너스: 서지 배율 × 50의 즉시 충전
-                var weather = WeatherSystem.Instance?.CurrentWeather
-                              ?? new WeatherState { SurgeMultiplier = 1f };
-                float bonus = 50f * weather.SurgeMultiplier;
-                closestNetwork.AddInstantPower(bonus);
-
-                Debug.Log($"[Power] Lightning direct hit! +{bonus:F0} power");
+                ProcessNetwork(net);
             }
         }
 
-        // ═══════════════════════════════════════
-        // 네트워크 리빌드
-        // ═══════════════════════════════════════
+        // =====================================================
+        //  네트워크 빌드 (6방향 인접 BFS)
+        //  Wire 시스템 전환 시 GetNeighbors()만 교체하면 됨.
+        // =====================================================
 
-        private void RebuildAllNetworks()
+        private void RebuildNetworks()
         {
             _networks.Clear();
-            _blockToNetwork.Clear();
-            _allProducers.Clear();
+            _bfsVisited.Clear();
 
-            // 월드의 모든 전력 블록을 스캔
-            var powerBlocks = FindAllPowerBlocks();
-            var visited = new HashSet<Vector3Int>();
-            int networkId = 0;
-
-            foreach (var pos in powerBlocks)
+            foreach (var startPos in _registeredBlocks)
             {
-                if (visited.Contains(pos)) continue;
+                if (_bfsVisited.Contains(startPos)) continue;
 
-                // BFS로 연결된 전력 블록 그룹 탐색
-                var network = new PowerNetwork(networkId++);
-                var queue = new Queue<Vector3Int>();
-                queue.Enqueue(pos);
-                visited.Add(pos);
-
-                while (queue.Count > 0)
-                {
-                    var current = queue.Dequeue();
-                    BlockType bt = _world.GetBlock(current.x, current.y, current.z);
-                    ref BlockDef def = ref BlockData.Defs[(ushort)bt];
-
-                    network.AddBlock(current, ref def);
-                    _blockToNetwork[current] = network;
-
-                    if (def.PowerRole == PowerRole.Producer)
-                        _allProducers.Add(current);
-
-                    // 6방향 이웃 탐색
-                    foreach (var dir in _neighbors)
-                    {
-                        var next = current + dir;
-                        if (visited.Contains(next)) continue;
-
-                        BlockType nbt = _world.GetBlock(next.x, next.y, next.z);
-                        if (BlockData.Defs[(ushort)nbt].IsPowerBlock)
-                        {
-                            visited.Add(next);
-                            queue.Enqueue(next);
-                        }
-                    }
-                }
-
-                _networks.Add(network);
+                var net = new PowerNetwork();
+                BFS(startPos, net);
+                _networks.Add(net);
             }
-
-            Debug.Log($"[Power] Rebuilt: {_networks.Count} networks, " +
-                      $"{_allProducers.Count} rods, " +
-                      $"{_blockToNetwork.Count} power blocks");
         }
 
-        private List<Vector3Int> FindAllPowerBlocks()
+        private void BFS(Vector3Int start, PowerNetwork net)
         {
-            var result = new List<Vector3Int>();
-            int maxX = _world.WorldSizeX * Chunk.SIZE;
-            int maxY = _world.WorldSizeY * Chunk.SIZE;
-            int maxZ = _world.WorldSizeZ * Chunk.SIZE;
+            _bfsQueue.Clear();
+            _bfsQueue.Enqueue(start);
+            _bfsVisited.Add(start);
 
-            for (int x = 0; x < maxX; x++)
-            for (int y = 0; y < maxY; y++)
-            for (int z = 0; z < maxZ; z++)
+            while (_bfsQueue.Count > 0)
             {
-                BlockType bt = _world.GetBlock(x, y, z);
-                if (bt != BlockType.Air && BlockData.Defs[(ushort)bt].IsPowerBlock)
-                    result.Add(new Vector3Int(x, y, z));
+                var pos = _bfsQueue.Dequeue();
+
+                BlockType bt = _world.GetBlock(pos.x, pos.y, pos.z);
+                BlockDef def = BlockData.Defs[(ushort)bt];
+
+                if (!def.IsPowerBlock) continue;
+
+                switch (def.PowerRole)
+                {
+                    case PowerRole.Producer:  net.Producers.Add(pos); break;
+                    case PowerRole.Storage:   net.Storages.Add(pos);  break;
+                    case PowerRole.Consumer:  net.Consumers.Add(pos); break;
+                    case PowerRole.Conductor: break; // 전도만
+                }
+
+                GetNeighbors(pos, _neighborBuf);
+                foreach (var neighbor in _neighborBuf)
+                {
+                    if (_bfsVisited.Contains(neighbor)) continue;
+
+                    BlockType nbt = _world.GetBlock(neighbor.x, neighbor.y, neighbor.z);
+                    BlockDef ndef = BlockData.Defs[(ushort)nbt];
+
+                    if (ndef.IsPowerBlock)
+                    {
+                        _bfsVisited.Add(neighbor);
+                        _bfsQueue.Enqueue(neighbor);
+                    }
+                }
+            }
+        }
+
+        /// <summary>이웃 탐색. Wire 시스템 전환 시 여기만 교체.</summary>
+        private void GetNeighbors(Vector3Int pos, List<Vector3Int> result)
+        {
+            result.Clear();
+
+            // Wire 시스템 활성화 후 아래 코드로 교체:
+             var wm = WireManager.Instance;
+             if (wm != null) { wm.GetConnectedBlocks(pos, result); return; }
+
+            result.Add(pos + Vector3Int.right);
+            result.Add(pos + Vector3Int.left);
+            result.Add(pos + Vector3Int.up);
+            result.Add(pos + Vector3Int.down);
+            result.Add(pos + new Vector3Int(0, 0, 1));
+            result.Add(pos + new Vector3Int(0, 0, -1));
+        }
+
+        // =====================================================
+        //  전력 분배
+        // =====================================================
+
+        private void ProcessNetwork(PowerNetwork net)
+        {
+            // 발전
+            net.TotalProduced = 0f;
+            foreach (var prodPos in net.Producers)
+            {
+                net.TotalProduced += GetProducerOutput(prodPos);
             }
 
+            // 충전
+            float surplus = net.TotalProduced;
+            foreach (var storPos in net.Storages)
+            {
+                if (surplus <= 0f) break;
+                float capacity = GetBatteryCapacity(storPos);
+                float current = GetBatteryLevel(storPos);
+                float space = capacity - current;
+                if (space > 0f)
+                {
+                    float charge = Mathf.Min(surplus, space);
+                    SetBatteryLevel(storPos, current + charge);
+                    surplus -= charge;
+                }
+            }
+
+            // 총 가용 전력
+            float totalStored = 0f;
+            foreach (var storPos in net.Storages)
+                totalStored += GetBatteryLevel(storPos);
+
+            float totalSupply = surplus + totalStored;
+
+            // 총 수요
+            float totalDemand = 0f;
+            foreach (var consPos in net.Consumers)
+                totalDemand += GetPowerDraw(consPos);
+
+            // 소비
+            if (totalSupply >= totalDemand)
+            {
+                foreach (var consPos in net.Consumers)
+                    _poweredBlocks[consPos] = true;
+
+                float drain = totalDemand - surplus;
+                if (drain > 0f) DrainBatteries(net.Storages, drain);
+            }
+
+            // Producer/Storage도 powered
+            foreach (var p in net.Producers)
+                _poweredBlocks[p] = true;
+            foreach (var s in net.Storages)
+            {
+                if (GetBatteryLevel(s) > 0f || net.TotalProduced > 0f)
+                    _poweredBlocks[s] = true;
+            }
+        }
+
+        private float GetProducerOutput(Vector3Int pos)
+        {
+            BlockDef def = BlockData.Defs[(ushort)_world.GetBlock(pos.x, pos.y, pos.z)];
+            float baseOutput = def.BaseOutput > 0 ? def.BaseOutput : 5f;
+            float heightMult = 1f + pos.y * 0.05f;
+            return baseOutput * heightMult;
+        }
+
+        private float GetBatteryCapacity(Vector3Int pos)
+        {
+            BlockDef def = BlockData.Defs[(ushort)_world.GetBlock(pos.x, pos.y, pos.z)];
+            return def.BatteryCapacity > 0 ? def.BatteryCapacity : 100f;
+        }
+
+        private float GetPowerDraw(Vector3Int pos)
+        {
+            BlockDef def = BlockData.Defs[(ushort)_world.GetBlock(pos.x, pos.y, pos.z)];
+            return def.PowerDraw > 0 ? def.PowerDraw : 1f;
+        }
+
+        // =====================================================
+        //  배터리 관리
+        // =====================================================
+
+        public float GetBatteryLevel(Vector3Int pos)
+        {
+            return _batteryStorage.TryGetValue(pos, out float val) ? val : 0f;
+        }
+
+        public void SetBatteryLevel(Vector3Int pos, float level)
+        {
+            _batteryStorage[pos] = Mathf.Max(0f, level);
+        }
+
+        private void DrainBatteries(List<Vector3Int> storages, float amount)
+        {
+            float remaining = amount;
+            foreach (var pos in storages)
+            {
+                if (remaining <= 0f) break;
+                float current = GetBatteryLevel(pos);
+                if (current <= 0f) continue;
+                float drain = Mathf.Min(current, remaining);
+                SetBatteryLevel(pos, current - drain);
+                remaining -= drain;
+            }
+        }
+
+        // =====================================================
+        //  공개 API
+        // =====================================================
+
+        public bool IsBlockPowered(Vector3Int pos)
+        {
+            return _poweredBlocks.TryGetValue(pos, out bool val) && val;
+        }
+
+        public void ConsumePower(Vector3Int pos, float amount)
+        {
+            foreach (var net in _networks)
+            {
+                if (net.Consumers.Contains(pos) || net.Producers.Contains(pos))
+                {
+                    DrainBatteries(net.Storages, amount);
+                    return;
+                }
+            }
+        }
+
+        public void OnBlockDestroyed(Vector3Int pos)
+        {
+            _batteryStorage.Remove(pos);
+            _poweredBlocks.Remove(pos);
+            _registeredBlocks.Remove(pos);
+            _isDirty = true;
+        }
+
+        public void OnBlockChanged(int wx, int wy, int wz, BlockType type)
+        {
+            var pos = new Vector3Int(wx, wy, wz);
+
+            if (type == BlockType.Air)
+            {
+                OnBlockDestroyed(pos);
+            }
+            else
+            {
+                BlockDef def = BlockData.Defs[(ushort)type];
+                if (def.IsPowerBlock)
+                {
+                    _registeredBlocks.Add(pos);
+
+                    if (def.PowerRole == PowerRole.Storage && !_batteryStorage.ContainsKey(pos))
+                        _batteryStorage[pos] = 0f;
+
+                    _isDirty = true;
+                }
+            }
+        }
+
+        // =====================================================
+        //  하위 호환 API (ArcGun, DebugHUD, LightningSystem)
+        // =====================================================
+
+        /// <summary>전체 전력 통계. (총 저장량, 총 용량)</summary>
+        public (float stored, float capacity) GetGlobalPowerStats()
+        {
+            float totalStored = 0f;
+            float totalCapacity = 0f;
+
+            foreach (var pos in _registeredBlocks)
+            {
+                BlockType bt = _world != null ? _world.GetBlock(pos.x, pos.y, pos.z) : BlockType.Air;
+                BlockDef def = BlockData.Defs[(ushort)bt];
+                if (def.PowerRole == PowerRole.Storage)
+                {
+                    totalStored += GetBatteryLevel(pos);
+                    totalCapacity += def.BatteryCapacity > 0 ? def.BatteryCapacity : 100f;
+                }
+            }
+
+            return (totalStored, totalCapacity);
+        }
+
+        /// <summary>글로벌 전력 소모.</summary>
+        public void ConsumeGlobal(float amount)
+        {
+            float remaining = amount;
+            foreach (var net in _networks)
+            {
+                if (remaining <= 0f) break;
+                DrainBatteries(net.Storages, remaining);
+                remaining = 0f; // 첫 네트워크에서 전부 차감 시도
+            }
+        }
+
+        /// <summary>모든 Producer 좌표 목록.</summary>
+        public List<Vector3Int> GetAllProducerPositions()
+        {
+            var result = new List<Vector3Int>();
+            foreach (var pos in _registeredBlocks)
+            {
+                if (_world == null) continue;
+                BlockType bt = _world.GetBlock(pos.x, pos.y, pos.z);
+                BlockDef def = BlockData.Defs[(ushort)bt];
+                if (def.IsPowerBlock && def.PowerRole == PowerRole.Producer)
+                    result.Add(pos);
+            }
             return result;
         }
 
-        private static readonly Vector3Int[] _neighbors =
+        // =====================================================
+        //  디버그
+        // =====================================================
+
+        public void DebugDump()
         {
-            Vector3Int.right, Vector3Int.left, Vector3Int.up,
-            Vector3Int.down, new(0, 0, 1), new(0, 0, -1)
-        };
+            Debug.Log($"=== VoxelPowerSystem ===");
+            Debug.Log($"Registered: {_registeredBlocks.Count}, Powered: {_poweredBlocks.Count}, Networks: {_networks.Count}");
+        }
     }
 }
